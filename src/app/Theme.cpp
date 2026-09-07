@@ -23,6 +23,8 @@ void apply(QApplication& app) {
     pal.setColor(QPalette::Link, colors::accent);
     pal.setColor(QPalette::Highlight, colors::accent);
     pal.setColor(QPalette::HighlightedText, Qt::white);
+    // 占位符显式给色：Fusion 在深色下默认派生过暗，接近黑底黑字
+    pal.setColor(QPalette::PlaceholderText, colors::textDim);
     pal.setColor(QPalette::Disabled, QPalette::Text, colors::textDim);
     pal.setColor(QPalette::Disabled, QPalette::ButtonText, colors::textDim);
     pal.setColor(QPalette::Disabled, QPalette::Window, colors::window);

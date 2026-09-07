@@ -2,6 +2,8 @@
 #pragma once
 #include "llm/ProviderManager.h"
 #include <QGridLayout>
+#include <QHash>
+#include <QLabel>
 #include <QScrollArea>
 #include <QWidget>
 
@@ -20,6 +22,8 @@ private:
 
     ProviderManager* m_pm = nullptr;
     QGridLayout* m_grid = nullptr;
+    // 测试连接的结果回显行（供应商名 → 卡片上的状态 QLabel）
+    QHash<QString, QLabel*> m_testLabels;
 };
 
 } // namespace miderforge

@@ -146,6 +146,31 @@ bool Database::migrate() {
             return false;
         }
     }
+    // ---- 老库升级：CREATE TABLE IF NOT EXISTS 不会给已存在的表补列，这里按列名增量 ALTER ----
+    // skills.version 是后补列（决策: 支撑同名 merge version+1）；缺失时 writeSkill 的 INSERT 会静默失败
+    {
+        sqlite3_stmt* stmt = nullptr;
+        bool hasVersion = false;
+        if (sqlite3_prepare_v2(m_db, "PRAGMA table_info(skills)", -1, &stmt, nullptr) == SQLITE_OK) {
+            while (sqlite3_step(stmt) == SQLITE_ROW) {
+                const unsigned char* col = sqlite3_column_text(stmt, 1);
+                if (col && QLatin1String(reinterpret_cast<const char*>(col)) == QLatin1String("version"))
+                    hasVersion = true;
+            }
+            sqlite3_finalize(stmt);
+        }
+        if (!hasVersion) {
+            char* err = nullptr;
+            if (sqlite3_exec(m_db,
+                             "ALTER TABLE skills ADD COLUMN version INTEGER NOT NULL DEFAULT 1",
+                             nullptr, nullptr, &err) != SQLITE_OK) {
+                m_lastError = QString::fromUtf8(err ? err : "skills.version 迁移失败");
+                if (err)
+                    sqlite3_free(err);
+                return false;
+            }
+        }
+    }
     return true;
 }
 

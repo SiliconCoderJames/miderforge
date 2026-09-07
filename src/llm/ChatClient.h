@@ -33,7 +33,7 @@ public:
     ~ChatClient() override;
 
     // 发起一轮流式对话。baseUrl/模型/Key/extra_body 由 ProviderConfig 提供（三档路由在 M4 接入 Router）
-    void start(const class ProviderConfig& provider, const QString& model,
+    void start(const struct ProviderConfig& provider, const QString& model,
                const QJsonArray& messages, const QJsonArray& tools);
     void cancel();
 

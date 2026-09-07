@@ -207,7 +207,7 @@ void ProviderManager::setHealth(const QString& name, Health h) {
     emit providerChanged();
 }
 
-bool ProviderManager::testConnection(const QString& name, QString* err) {
+bool ProviderManager::testConnection(const QString& name, QString* err, int* latencyMs) {
     const ProviderConfig* cfg = provider(name);
     if (!cfg) {
         if (err) *err = QStringLiteral("供应商不存在");
@@ -229,7 +229,11 @@ bool ProviderManager::testConnection(const QString& name, QString* err) {
     const CURLcode rc = curl_easy_perform(curl);
     long code = 0;
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &code);
+    curl_off_t totalUs = 0;
+    curl_easy_getinfo(curl, CURLINFO_TOTAL_TIME_T, &totalUs);
     curl_easy_cleanup(curl);
+    if (latencyMs)
+        *latencyMs = static_cast<int>(totalUs / 1000);
 
     const bool ok = (rc == CURLE_OK && code < 500 && code != 0);
     setHealth(name, ok ? Health::Ok : Health::Fail);

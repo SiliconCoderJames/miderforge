@@ -52,8 +52,8 @@ public:
     enum class Health { Unknown, Ok, Fail };
     Health health(const QString& name) const { return m_health.value(name, Health::Unknown); }
     void setHealth(const QString& name, Health h);
-    // 测试连接：GET base_url（10s 超时），更新健康状态并返回结果
-    bool testConnection(const QString& name, QString* err = nullptr);
+    // 测试连接：GET base_url（10s 超时），更新健康状态并返回结果；latencyMs 可选回传实测耗时
+    bool testConnection(const QString& name, QString* err = nullptr, int* latencyMs = nullptr);
 
 signals:
     void providerChanged(); // 供应商切换/健康状态变化（UI 状态灯）

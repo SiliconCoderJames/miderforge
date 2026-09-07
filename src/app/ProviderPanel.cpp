@@ -46,6 +46,7 @@ void ProviderPanel::rebuild() {
             it->widget()->deleteLater();
         delete it;
     }
+    m_testLabels.clear();
     int row = 0, col = 0;
     for (const auto& cfg : m_pm->all()) {
         m_grid->addWidget(makeCard(cfg), row, col);
@@ -98,13 +99,31 @@ QWidget* ProviderPanel::makeCard(const ProviderConfig& cfg) {
     // 实时延迟/费用：v1 由测试连接与使用事件回填（decision: 显示占位“—”不建假数据）
     lay->addWidget(new QLabel(QStringLiteral("延迟：— · 今日 tokens：— · 估算费用：—"), card));
 
+    // 测试连接结果回显行（默认隐藏，点击后显示，避免静态冗余）
+    auto* testResult = new QLabel(card);
+    testResult->setWordWrap(true);
+    testResult->hide();
+    m_testLabels.insert(cfg.name, testResult);
+    lay->addWidget(testResult);
+
     auto* btnRow = new QHBoxLayout();
     auto* testBtn = new QPushButton(QStringLiteral("测试连接"), card);
     auto* useBtn = new QPushButton(QStringLiteral("设为当前"), card);
     useBtn->setEnabled(cfg.name != m_pm->activeProvider()->name);
+    testBtn->setEnabled(cfg.configured); // 未配置 Key 时探测必然失败，禁用并提示原因
     connect(testBtn, &QPushButton::clicked, this, [this, name = cfg.name] {
         QString err;
-        m_pm->testConnection(name, &err);
+        int latency = 0;
+        const bool ok = m_pm->testConnection(name, &err, &latency);
+        if (auto* lb = m_testLabels.value(name)) {
+            if (ok)
+                lb->setText(QStringLiteral("✔ 连接正常（%1 ms）").arg(latency));
+            else
+                lb->setText(QStringLiteral("✖ 连接失败：%1").arg(err));
+            lb->setStyleSheet(QStringLiteral("color:%1;")
+                                  .arg(ok ? theme::colors::success.name() : theme::colors::error.name()));
+            lb->show();
+        }
     });
     connect(useBtn, &QPushButton::clicked, this, [this, name = cfg.name] {
         m_pm->setActive(name);
@@ -112,6 +131,11 @@ QWidget* ProviderPanel::makeCard(const ProviderConfig& cfg) {
     });
     btnRow->addWidget(testBtn);
     btnRow->addWidget(useBtn);
+    if (!cfg.configured) {
+        auto* hint = new QLabel(QStringLiteral("（未配置 Key）"), card);
+        hint->setStyleSheet(QStringLiteral("color:%1;font-size:9pt;").arg(theme::colors::warn.name()));
+        btnRow->addWidget(hint);
+    }
     btnRow->addStretch(1);
     lay->addLayout(btnRow);
 

@@ -19,9 +19,11 @@
 #include "util/AppDirs.h"
 #include "util/Log.h"
 #include <QApplication>
+#include <QLibraryInfo>
 #include <QLockFile>
 #include <QMessageBox>
 #include <QThread>
+#include <QTranslator>
 #include <spdlog/spdlog.h>
 #ifdef Q_OS_WIN
 #include <windows.h>
@@ -56,6 +58,13 @@ int main(int argc, char* argv[]) {
     }
 
     theme::apply(app);
+
+    // Qt 内置控件文案中文化（QDialogButtonBox 的 Save/Cancel 等默认是英文）
+    QTranslator qtTranslator;
+    if (qtTranslator.load(QStringLiteral("qtbase_zh_CN.qm"),
+                          QLibraryInfo::path(QLibraryInfo::TranslationsPath)))
+        app.installTranslator(&qtTranslator);
+
     AppContext::instance().workspaceRoot = appdirs::workspaceRoot();
 
     // 供应商配置：不存在或无可用 Key → 首次配置向导
