@@ -36,6 +36,8 @@ add_library(mider_core STATIC
     src/llm/ToolCallAccumulator.h src/llm/ToolCallAccumulator.cpp
     src/llm/ChatClient.h       src/llm/ChatClient.cpp
     src/llm/ProviderManager.h  src/llm/ProviderManager.cpp
+    src/db/Database.h          src/db/Database.cpp
+    src/memory/MemoryManager.h src/memory/MemoryManager.cpp
     src/tools/ToolRegistry.h   src/tools/ToolRegistry.cpp
     src/tools/FileTools.h      src/tools/FileTools.cpp
     src/tools/CommandTools.h   src/tools/CommandTools.cpp
@@ -46,7 +48,21 @@ add_library(mider_core STATIC
     src/util/Log.h             src/util/Log.cpp
     src/util/Tokens.h          src/util/Tokens.cpp
 )
-target_include_directories(mider_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_include_directories(mider_core PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/sqlite/sqlite-amalgamation-3530400)
+# SQLite amalgamation（内置源码）：FTS5 trigram 全文检索；sqlite-vec v1 仅加载不使用（规格 2）
+target_sources(mider_core PRIVATE
+    third_party/sqlite/sqlite-amalgamation-3530400/sqlite3.c
+    third_party/sqlite-vec/sqlite-vec.c
+)
+set_source_files_properties(third_party/sqlite/sqlite-amalgamation-3530400/sqlite3.c PROPERTIES
+    COMPILE_DEFINITIONS "SQLITE_ENABLE_FTS5;SQLITE_ENABLE_COLUMN_METADATA;SQLITE_ENABLE_MATH_FUNCTIONS"
+)
+set_source_files_properties(third_party/sqlite-vec/sqlite-vec.c PROPERTIES
+    # SQLITE_CORE：静态编译直连 sqlite3 API（不经扩展装载机制）；SQLITE_VEC_STATIC：免 dllexport
+    COMPILE_DEFINITIONS "SQLITE_CORE;SQLITE_VEC_STATIC"
+)
 target_link_libraries(mider_core PUBLIC
     Qt6::Widgets CURL::libcurl nlohmann_json::nlohmann_json spdlog::spdlog)
 if(WIN32)
@@ -67,6 +83,7 @@ add_executable(mider_tests
     tests/test_permission.cpp
     tests/test_breaker.cpp
     tests/test_command.cpp
+    tests/test_memory.cpp
 )
 target_link_libraries(mider_tests PRIVATE mider_core Qt6::Network doctest::doctest)
 if(MSVC)

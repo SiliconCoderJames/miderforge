@@ -107,7 +107,12 @@ void CommandTools::registerAll(ToolRegistry& reg) {
             return {};
         }
         // 纵深防御：白名单首词二次校验（权限门已查一次）
-        const QString first = command.split(QLatin1Char(' ')).value(0).toLower();
+        const QStringList parts = QProcess::splitCommand(command);
+        if (parts.isEmpty()) {
+            if (err) *err = QStringLiteral("command 参数为空");
+            return {};
+        }
+        const QString first = parts.first().toLower();
         if (!PermissionGate::commandWhitelist().contains(first)) {
             if (err) *err = QStringLiteral("命令不在白名单内：%1").arg(first);
             return {};
@@ -120,7 +125,7 @@ void CommandTools::registerAll(ToolRegistry& reg) {
 #ifdef Q_OS_WIN
         JobGuard jobGuard;
 #endif
-        proc.start(command, {}); // 决策: 整串交由 shell 解析？否——cmd.exe 攻击面大，直接执行首词
+        proc.start(parts.first(), parts.mid(1)); // 首词为程序，其余为参数（不做 shell 解析）
         if (!proc.waitForStarted(5000)) {
             if (err) *err = QStringLiteral("进程启动失败：%1").arg(proc.errorString());
             return {};
