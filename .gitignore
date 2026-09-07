@@ -1,0 +1,122 @@
+# ================================================================
+#  Miderforge .gitignore —— C++20 / CMake / MSVC / Qt6 / vcpkg
+#  原则：入库的只有源码、资源、脚本、文档、模板配置。
+#  一切生成物 / 二进制 / 本地配置 / 密钥 / 日志 / 数据库，绝不入库。
+# ================================================================
+# ---------- CMake 构建目录与产物 ----------
+build/
+build-*/
+builds/
+out/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+CMakeUserPresets.json
+cmake_install.cmake
+CTestTestfile.cmake
+compile_commands.json
+install_manifest.txt
+*.ninja
+.ninja_deps
+.ninja_log
+# ---------- vcpkg（manifest 模式的本地安装产物） ----------
+vcpkg_installed/
+# ---------- Visual Studio / MSVC ----------
+.vs/
+ipch/
+*.ipch
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.ncb
+*.sdf
+*.opensdf
+*.opendb
+*.VC.db
+*.VC.opendb
+*.aps
+*.pdb
+*.ilk
+*.idb
+*.iobj
+*.ipdb
+*.exp
+*.lib
+*.dll
+*.exe
+[Dd]ebug/
+[Dd]ebugPublic/
+[Rr]elease/
+[Rr]eleases/
+x64/
+x86/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Bb]in/
+[Oo]bj/
+# ---------- Qt 生成文件 ----------
+moc_*.cpp
+moc_*.h
+qrc_*.cpp
+ui_*.h
+*.qm
+# ---------- SQLite / 运行时数据（含测试在仓库目录产生的本地库） ----------
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+*.sqlite
+*.sqlite3
+workspace/
+crash-dumps/
+# ---------- 日志与崩溃转储 ----------
+logs/
+[Ll]og/
+*.log
+*.dmp
+# ---------- 密钥与本地配置（红线：绝不入库） ----------
+# 真实配置只放 %APPDATA%\Miderforge\config\，仓库只留模板
+config/providers.json
+config/providers.local.json
+*.local.json
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+secrets/
+# 反向豁免：模板必须入库
+!config/providers.template.json
+# 决策: 刻意不用 *token*/*secret* 这类过宽模式——会误伤 token_counter.cpp
+# 等正常源码文件名。密钥防护靠精确文件名 + 提交前人工扫描（见 docs/CONFIG.md）
+# ---------- 测试与覆盖率 ----------
+Testing/
+coverage/
+*.gcov
+*.gcda
+*.gcno
+*.lcov
+*.info
+# ---------- 编辑器 / IDE / 操作系统 ----------
+.vscode/
+.idea/
+*.code-workspace
+*.swp
+*~
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+# ---------- 临时与备份 ----------
+*.tmp
+*.bak
+*.orig
+*.rej
+
+# ---------- 本地工具会话状态（ZCode/Mimosa 等代理工具产物，绝不入库） ----------
+.mimosa/
+.v2c/

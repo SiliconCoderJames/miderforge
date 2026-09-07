@@ -1,0 +1,19 @@
+{
+  "active": "zhipu",
+  "providers": [
+    {
+      "name": "zhipu",
+      "base_url": "https://open.bigmodel.cn/api/paas/v4",
+      "api_key_dpapi": "<在应用内输入 API Key 后由 DPAPI 加密写入>",
+      "tiers": { "fast": "glm-5.3-flash", "main": "glm-5.3", "flagship": "glm-5.3" },
+      "extra_body": { "thinking": { "type": "enabled" }, "reasoning_effort": "medium" }
+    },
+    {
+      "name": "deepseek",
+      "base_url": "https://api.deepseek.com",
+      "api_key_dpapi": "<在应用内输入 API Key 后由 DPAPI 加密写入>",
+      "tiers": { "fast": "deepseek-chat", "main": "deepseek-chat", "flagship": "deepseek-reasoner" },
+      "role": "failover_backup"
+    }
+  ]
+}

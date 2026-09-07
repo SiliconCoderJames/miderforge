@@ -1,0 +1,29 @@
+{
+  "version": 6,
+  "configurePresets": [
+    {
+      "name": "win64",
+      "displayName": "Windows x64 (vcpkg manifest + 本机 Qt 6.8.3)",
+      "generator": "Visual Studio 18 2026",
+      "architecture": { "value": "x64", "strategy": "set" },
+      "binaryDir": "${sourceDir}/build",
+      "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+      "cacheVariables": {
+        "VCPKG_TARGET_TRIPLET": "x64-windows",
+        "CMAKE_PREFIX_PATH": "C:/Qt/6.8.3/msvc2022_64"
+      }
+    }
+  ],
+  "buildPresets": [
+    { "name": "win64-debug", "configurePreset": "win64", "configuration": "Debug" },
+    { "name": "win64-release", "configurePreset": "win64", "configuration": "Release" }
+  ],
+  "testPresets": [
+    {
+      "name": "win64-debug",
+      "configurePreset": "win64",
+      "configuration": "Debug",
+      "output": { "outputOnFailure": true }
+    }
+  ]
+}
