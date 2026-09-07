@@ -43,6 +43,10 @@ add_library(mider_core STATIC
 target_include_directories(mider_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(mider_core PUBLIC
     Qt6::Widgets CURL::libcurl nlohmann_json::nlohmann_json spdlog::spdlog)
+if(WIN32)
+    # DPAPI（CryptProtectData/CryptUnprotectData）
+    target_link_libraries(mider_core PUBLIC crypt32)
+endif()
 
 # 主程序
 qt_add_executable(miderforge WIN32 src/main.cpp)
@@ -56,3 +60,7 @@ add_executable(mider_tests
     tests/test_mockstream.cpp
 )
 target_link_libraries(mider_tests PRIVATE mider_core Qt6::Network doctest::doctest)
+if(MSVC)
+    # 崩溃栈回溯（tests/test_main.cpp 的 dbghelp 符号解析）
+    target_link_libraries(mider_tests PRIVATE dbghelp)
+endif()

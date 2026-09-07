@@ -8,8 +8,6 @@
 #include <QUrl>
 #include <spdlog/spdlog.h>
 
-Q_DECLARE_METATYPE(miderforge::HttpClient::Request)
-
 namespace miderforge {
 
 ChatClient::ChatClient(QObject* parent) : QObject(parent) {

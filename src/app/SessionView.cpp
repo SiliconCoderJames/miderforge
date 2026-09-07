@@ -5,6 +5,7 @@
 #include <QBoxLayout>
 #include <QComboBox>
 #include <QPushButton>
+#include <QScrollBar>
 #include <QShortcut>
 #include <QSignalBlocker>
 

@@ -7,7 +7,7 @@ namespace miderforge::tokens {
 long long estimate(const QString& text) {
     long long cjk = 0, ascii = 0;
     for (const QChar ch : text) {
-        if (ch.isNullOrWhitespace())
+        if (ch.isNull() || ch.isSpace())
             continue;
         if (ch.unicode() < 0x80)
             ++ascii;

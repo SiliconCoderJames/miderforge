@@ -28,10 +28,10 @@ TEST_CASE("多个事件·同块到达") {
 
 TEST_CASE("跨块边界·事件中段被切开") {
     SseParser p;
-    p.feed("data: {\"choices\":[{\"del", 25);
+    p.feed(QByteArray("data: {\"choices\":[{\"del"));
     auto ev1 = p.takeCompleteEvents();
     CHECK(ev1.empty()); // 半帧不得交出
-    p.feed("ta\":{\"content\":\"你好\"}]}\n\n", 30);
+    p.feed(QByteArray("ta\":{\"content\":\"你好\"}]}\n\n"));
     auto ev2 = p.takeCompleteEvents();
     REQUIRE(ev2.size() == 1);
     CHECK(ev2[0] == QString("{\"choices\":[{\"delta\":{\"content\":\"你好\"}]}"));
@@ -51,9 +51,9 @@ TEST_CASE("CRLF 被切在 \\r 与 \\n 之间（悬挂回车）") {
     CHECK(p.takeCompleteEvents().empty()); // \r 悬挂，不得误判为空行
     p.feed("\ndata: y\r\n\r\n", 13);
     auto ev = p.takeCompleteEvents();
-    REQUIRE(ev.size() == 2);
-    CHECK(ev[0] == QString("x"));
-    CHECK(ev[1] == QString("y"));
+    // "data: x\r\n" 只是一个行尾：x 与 y 之间没有空行，属于同一事件的两行 data
+    REQUIRE(ev.size() == 1);
+    CHECK(ev[0] == QString("x\ny"));
 }
 
 TEST_CASE("[DONE] 哨兵帧原样透传") {
@@ -87,12 +87,12 @@ TEST_CASE("data 后无空格") {
 
 TEST_CASE("不完整尾部保留·不得提前解析") {
     SseParser p;
-    p.feed("data: first\n\ndata: secon", 24);
+    p.feed(QByteArray("data: first\n\ndata: secon"));
     auto ev = p.takeCompleteEvents();
     REQUIRE(ev.size() == 1); // 只有 first 完整
     CHECK(ev[0] == QString("first"));
     CHECK(p.hasPending());
-    p.feed("d\n\n", 4);
+    p.feed(QByteArray("d\n\n"));
     ev = p.takeCompleteEvents();
     REQUIRE(ev.size() == 1);
     CHECK(ev[0] == QString("second"));
@@ -100,7 +100,7 @@ TEST_CASE("不完整尾部保留·不得提前解析") {
 
 TEST_CASE("flushRemainder 交出漏发空行的最后一帧") {
     SseParser p;
-    p.feed("data: done-frame", 17);
+    p.feed(QByteArray("data: done-frame")); // 用 QByteArray 重载，避免手写长度偏差
     CHECK(p.takeCompleteEvents().empty());
     auto ev = p.flushRemainder();
     REQUIRE(ev.size() == 1);

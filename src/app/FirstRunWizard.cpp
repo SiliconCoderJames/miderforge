@@ -28,8 +28,8 @@ FirstRunWizard::FirstRunWizard(ProviderManager* pm, QWidget* parent)
     lay->addWidget(title);
     lay->addWidget(hint);
 
-    auto makeGroup = [this](const QString& name, const QString& url, const QString& applyHint,
-                            QLineEdit** urlEdit, QLineEdit** keyEdit) {
+    auto makeGroup = [this, &lay](const QString& name, const QString& url, const QString& applyHint,
+                                  QLineEdit** urlEdit, QLineEdit** keyEdit) {
         auto* groupLay = new QFormLayout();
         auto* header = new QLabel(QStringLiteral("<b>%1</b>　<a href=\"%2\">%3</a>").arg(name, url, applyHint), this);
         header->setOpenExternalLinks(true);

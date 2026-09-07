@@ -14,9 +14,12 @@
 #include <QLockFile>
 #include <QMessageBox>
 #include <QThread>
+#include <spdlog/spdlog.h>
 #ifdef Q_OS_WIN
 #include <windows.h>
 #endif
+
+using namespace miderforge;
 
 int main(int argc, char* argv[]) {
 #ifdef Q_OS_WIN

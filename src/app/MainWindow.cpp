@@ -68,7 +68,7 @@ void MainWindow::buildCentral() {
     };
     for (const QString& text : navItems)
         m_nav->addTopLevelItem(new QTreeWidgetItem({text}));
-    m_nav->setCurrentRow(0);
+    m_nav->setCurrentItem(m_nav->topLevelItem(0));
     connect(m_nav, &QTreeWidget::currentItemChanged, this,
             [this](QTreeWidgetItem* cur, QTreeWidgetItem*) {
                 if (cur)
@@ -268,7 +268,7 @@ void MainWindow::switchNav(int index) {
     if (index == kNavSettingsIndex) {
         openSettings();
         // 设置是对话框：导航选框回弹到会话页
-        m_nav->setCurrentRow(0);
+        m_nav->setCurrentItem(m_nav->topLevelItem(0));
         return;
     }
     m_stack->setCurrentIndex(index);

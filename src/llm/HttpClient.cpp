@@ -90,6 +90,7 @@ void HttpClient::executeStream(const Request& req) {
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, &HttpClient::writeCallback);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, this);
     curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, &HttpClient::progressCallback);
+    curl_easy_setopt(curl, CURLOPT_XFERINFODATA, this); // 不设置默认为 NULL：progress 回调解引用即崩
     curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, static_cast<long>(req.connectTimeoutSec));
     // 低速率断流检测：连续 90 秒吞吐 < 1 B/s 视为死流（防“连接还在但数据断了”）

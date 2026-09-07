@@ -1,5 +1,6 @@
 // SSE 分帧解析实现：行尾归一化（\r\n 与孤立 \r 均视为行分隔）+ 按空行切块
 #include "llm/SseParser.h"
+#include <QList>
 
 namespace miderforge {
 
@@ -92,7 +93,5 @@ std::vector<QString> SseParser::flushRemainder() {
     m_buffer.clear();
     return events;
 }
-
-void SseParser::reset() { m_buffer.clear(); }
 
 } // namespace miderforge

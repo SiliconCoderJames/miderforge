@@ -2,7 +2,9 @@
 // 覆盖：正常双流（思考+正文）、工具调用碎片累积、流中途断线自动重试、401 错误透出
 #include "llm/ChatClient.h"
 #include "llm/ProviderManager.h"
+#include <QCoreApplication>
 #include <QElapsedTimer>
+#include <QEventLoop>
 #include <QHostAddress>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -14,6 +16,8 @@
 #include <memory>
 #include <optional>
 
+using miderforge::ChatClient;
+using miderforge::HttpClient;
 using miderforge::ProviderConfig;
 using miderforge::StreamResult;
 
@@ -94,6 +98,7 @@ private slots:
         });
     }
 
+private:
     QTcpServer m_server;
     QVector<MockScenario> m_scenarios;
     int m_connCount = 0;
@@ -134,9 +139,9 @@ TEST_CASE("ChatClient 正常流式：思考/正文双流 + finish_reason=stop") 
 
     QString thinking, content;
     std::optional<StreamResult> result;
-    connect(&client, &ChatClient::thinkingDelta, [&](const QString& d) { thinking += d; });
-    connect(&client, &ChatClient::contentDelta, [&](const QString& d) { content += d; });
-    connect(&client, &ChatClient::finished, [&](const StreamResult& r) { result = r; });
+    QObject::connect(&client, &ChatClient::thinkingDelta, [&](const QString& d) { thinking += d; });
+    QObject::connect(&client, &ChatClient::contentDelta, [&](const QString& d) { content += d; });
+    QObject::connect(&client, &ChatClient::finished, [&](const StreamResult& r) { result = r; });
 
     QJsonArray messages;
     messages.append(QJsonObject{{"role", "user"}, {"content", "打个招呼"}});
@@ -167,7 +172,7 @@ TEST_CASE("ChatClient 工具调用：参数碎片按 index 累积，finish_reaso
     ProviderConfig provider = makeProvider(QStringLiteral("http://127.0.0.1:%1/v1").arg(server.port()));
 
     std::optional<StreamResult> result;
-    connect(&client, &ChatClient::finished, [&](const StreamResult& r) { result = r; });
+    QObject::connect(&client, &ChatClient::finished, [&](const StreamResult& r) { result = r; });
 
     QJsonArray messages;
     messages.append(QJsonObject{{"role", "user"}, {"content", "读文件"}});
@@ -204,12 +209,12 @@ TEST_CASE("流中途断线：指数退避自动重试后成功") {
     std::optional<StreamResult> result;
     bool sawRetry = false;
     bool sawReset = false;
-    connect(&client, &ChatClient::failed, [&](const QString&, int, bool willRetry) {
+    QObject::connect(&client, &ChatClient::failed, [&](const QString&, int, bool willRetry) {
         if (willRetry)
             sawRetry = true;
     });
-    connect(&client, &ChatClient::streamReset, [&] { sawReset = true; });
-    connect(&client, &ChatClient::finished, [&](const StreamResult& r) { result = r; });
+    QObject::connect(&client, &ChatClient::streamReset, [&] { sawReset = true; });
+    QObject::connect(&client, &ChatClient::finished, [&](const StreamResult& r) { result = r; });
 
     QJsonArray messages;
     messages.append(QJsonObject{{"role", "user"}, {"content", "断线测试"}});
@@ -220,6 +225,27 @@ TEST_CASE("流中途断线：指数退避自动重试后成功") {
     CHECK(sawReset);
     CHECK(server.connectionCount() >= 2); // 断线后确实重连
     CHECK(result->content == QString("你好，世界")); // 重试后完整内容
+}
+
+TEST_CASE("curl 基线：不可达地址应返回错误而非崩溃") {
+    // 经 ChatClient（curl 在工作线程执行）对死端口发请求：应收到 failed 而非崩溃
+    ChatClient client;
+    ProviderConfig provider;
+    provider.name = QStringLiteral("dead");
+    provider.baseUrl = QStringLiteral("http://127.0.0.1:9");
+    provider.key = QStringLiteral("k");
+    provider.configured = true;
+
+    std::optional<QString> err;
+    QObject::connect(&client, &ChatClient::failed, [&](const QString& e, int, bool willRetry) {
+        if (!willRetry)
+            err = e;
+    });
+    QJsonArray messages;
+    messages.append(QJsonObject{{"role", "user"}, {"content", "hi"}});
+    client.start(provider, QStringLiteral("m"), messages, QJsonArray());
+    waitFor([&] { return err.has_value(); }, 20000); // 含 2 次退避重试（1s+2s）
+    REQUIRE(err.has_value());
 }
 
 TEST_CASE("HTTP 401：不重试，透出 API 错误信息") {
@@ -235,7 +261,7 @@ TEST_CASE("HTTP 401：不重试，透出 API 错误信息") {
 
     std::optional<QString> err;
     int errCode = 0;
-    connect(&client, &ChatClient::failed, [&](const QString& e, int code, bool willRetry) {
+    QObject::connect(&client, &ChatClient::failed, [&](const QString& e, int code, bool willRetry) {
         if (!willRetry) {
             err = e;
             errCode = code;
