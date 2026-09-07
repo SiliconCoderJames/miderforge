@@ -120,3 +120,4 @@ $RECYCLE.BIN/
 # ---------- 本地工具会话状态（ZCode/Mimosa 等代理工具产物，绝不入库） ----------
 .mimosa/
 .v2c/
+cmd-test-dump.txt

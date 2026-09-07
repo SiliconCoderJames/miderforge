@@ -2,7 +2,9 @@
 #include "app/MainWindow.h"
 #include "app/AuditLogView.h"
 #include "app/FirstRunWizard.h"
+#include "app/MemoryView.h"
 #include "app/SessionView.h"
+#include "app/TaskQueueView.h"
 #include "app/Theme.h"
 #include "core/AgentLoop.h"
 #include "core/AppContext.h"
@@ -25,8 +27,9 @@ constexpr int kNavCount = 7;
 constexpr int kNavSettingsIndex = 6;
 } // namespace
 
-MainWindow::MainWindow(ProviderManager* pm, AgentLoop* loop, EventBus* events, QWidget* parent)
-    : QMainWindow(parent), m_pm(pm), m_loop(loop), m_events(events) {
+MainWindow::MainWindow(ProviderManager* pm, AgentLoop* loop, EventBus* events, Database* db,
+                       MemoryManager* mem, QWidget* parent)
+    : QMainWindow(parent), m_pm(pm), m_loop(loop), m_events(events), m_db(db), m_mem(mem) {
     setWindowTitle(QStringLiteral("Miderforge"));
     resize(1440, 900);
     setMinimumSize(1024, 680);
@@ -106,9 +109,9 @@ void MainWindow::buildCentral() {
     m_stack = new QStackedWidget(central);
     m_sessionView = new SessionView(m_loop, m_stack);
     m_stack->addWidget(m_sessionView); // 0 会话
-    m_stack->addWidget(makePlaceholder(QStringLiteral("📋 任务队列面板将在 M2 里程碑实装\n（当前版本可直接在会话中连续下达目标，将自动排队执行）")));
+    m_stack->addWidget(new TaskQueueView(m_db, m_loop, m_stack)); // 1 任务队列（M2 实装）
     m_stack->addWidget(makePlaceholder(QStringLiteral("🧰 技能库面板将在 M3 里程碑实装")));
-    m_stack->addWidget(makePlaceholder(QStringLiteral("🧠 记忆面板将在 M2 里程碑实装")));
+    m_stack->addWidget(new MemoryView(m_mem, m_stack)); // 3 记忆（M2 实装）
     m_stack->addWidget(makePlaceholder(QStringLiteral("🔌 供应商面板将在 M4 里程碑实装\n（当前可在工具栏切换供应商）")));
     m_stack->addWidget(new AuditLogView(m_events, m_stack)); // 5 审计日志（M1 实装）
 

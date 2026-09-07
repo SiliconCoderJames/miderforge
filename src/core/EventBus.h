@@ -9,6 +9,8 @@
 
 namespace miderforge {
 
+class Database;
+
 class EventBus : public QObject {
     Q_OBJECT
 public:
@@ -23,7 +25,10 @@ public:
 
     explicit EventBus(const QString& jsonlPath, QObject* parent = nullptr);
 
-    // 追加一条事件：写 JSONL + 发 eventAppended；失败不致命（日志降级）
+    // M2：双写 SQLite events 表（append-only）；未设置则只写 JSONL
+    void setDatabase(Database* db) { m_db = db; }
+
+    // 追加一条事件：写 JSONL（+数据库）+ 发 eventAppended；失败不致命（日志降级）
     void append(const QString& type, qint64 taskId, const QJsonObject& payload);
 
     // 启动时从 JSONL 回读（审计日志视图数据源；封顶最近 maxKeep 条）
@@ -37,6 +42,7 @@ signals:
 private:
     QString m_path;
     QVector<Event> m_recent; // 内存环形（审计视图直读）
+    Database* m_db = nullptr;
 };
 
 } // namespace miderforge

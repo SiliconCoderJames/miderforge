@@ -28,11 +28,29 @@ bool MemoryManager::saveL1(const QString& content) const {
     QFile f(m_l1Path);
     if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
         return false;
-    return f.write(content.toUtf8()) >= 0; // 全链路 UTF-8
+    const bool ok = f.write(content.toUtf8()) >= 0; // 全链路 UTF-8
+    f.close();
+    if (ok)
+        m_lastAgentWrite = QFileInfo(m_l1Path).lastModified(); // 登记 Agent 写入
+    return ok;
 }
 
 long long MemoryManager::l1Tokens() const {
     return tokens::estimate(loadL1());
+}
+
+bool MemoryManager::l1UserEditedRecently() const {
+    // 决策: 记录 Agent 最近一次写入的文件 mtime；文件 mtime 与之不同且距 Agent 写入 <24h
+    // 视为用户手改（Agent 写入由 saveL1 统一登记）
+    QFileInfo info(m_l1Path);
+    if (!info.exists())
+        return false;
+    const QDateTime mtime = info.lastModified();
+    if (m_lastAgentWrite.isValid() && mtime == m_lastAgentWrite)
+        return false; // 就是 Agent 自己写的
+    if (!m_lastAgentWrite.isValid())
+        return true; // Agent 从未写过而文件存在：用户手建，保护
+    return m_lastAgentWrite.secsTo(mtime) != 0 && mtime > m_lastAgentWrite.addSecs(-1);
 }
 
 qint64 MemoryManager::addMemory(const QString& type, const QString& content, double importance) {

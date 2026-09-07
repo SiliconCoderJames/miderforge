@@ -1,5 +1,6 @@
 // 事件总线实现
 #include "core/EventBus.h"
+#include "db/Database.h"
 #include <QDateTime>
 #include <QFile>
 #include <QJsonDocument>
@@ -33,6 +34,11 @@ void EventBus::append(const QString& type, qint64 taskId, const QJsonObject& pay
     QFile f(m_path);
     if (f.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text))
         f.write(line + QByteArrayLiteral("\n"));
+    // M2：同步双写 events 表（append-only 审计；失败仅记日志不致命）
+    if (m_db) {
+        m_db->execute(QStringLiteral("INSERT INTO events(ts, type, task_id, payload_json) VALUES(?,?,?,?)"),
+                      {ev.ts, ev.type, ev.taskId, QString::fromUtf8(line)});
+    }
     m_recent.push_back(ev);
     if (m_recent.size() > kMaxInMemory)
         m_recent.remove(0, m_recent.size() - kMaxInMemory);

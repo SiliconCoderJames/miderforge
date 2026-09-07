@@ -16,14 +16,17 @@ namespace miderforge {
 class AgentLoop;
 class AuditLogView;
 class ChatClient;
+class Database;
 class EventBus;
+class MemoryManager;
 class ProviderManager;
 class SessionView;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
 public:
-    MainWindow(ProviderManager* pm, AgentLoop* loop, EventBus* events, QWidget* parent = nullptr);
+    MainWindow(ProviderManager* pm, AgentLoop* loop, EventBus* events, Database* db,
+               MemoryManager* mem, QWidget* parent = nullptr);
 
 private slots:
     void switchNav(int index);
@@ -42,6 +45,8 @@ private:
     ProviderManager* m_pm = nullptr;
     AgentLoop* m_loop = nullptr;
     EventBus* m_events = nullptr;
+    Database* m_db = nullptr;
+    MemoryManager* m_mem = nullptr;
 
     QTreeWidget* m_nav = nullptr;
     QStackedWidget* m_stack = nullptr;

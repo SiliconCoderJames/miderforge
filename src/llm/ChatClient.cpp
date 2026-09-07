@@ -33,8 +33,8 @@ ChatClient::ChatClient(QObject* parent) : QObject(parent) {
 ChatClient::~ChatClient() {
     m_retryTimer.stop();
     m_thread.quit();
-    m_thread.wait(5000);
-    delete m_http; // 线程已停，直接析构（不依赖 deleteLater）
+    m_thread.wait(); // 无超时：绝不删除仍在执行 curl 的对象（挂起比崩溃好排查）
+    delete m_http;
     m_http = nullptr;
 }
 

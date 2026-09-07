@@ -25,12 +25,15 @@ add_library(mider_core STATIC
     src/app/ChatWidgets.h      src/app/ChatWidgets.cpp
     src/app/SessionView.h      src/app/SessionView.cpp
     src/app/AuditLogView.h     src/app/AuditLogView.cpp
+    src/app/MemoryView.h       src/app/MemoryView.cpp
+    src/app/TaskQueueView.h    src/app/TaskQueueView.cpp
     src/app/MainWindow.h       src/app/MainWindow.cpp
     src/app/FirstRunWizard.h   src/app/FirstRunWizard.cpp
     src/core/AppContext.h      src/core/AppContext.cpp
     src/core/AgentLoop.h       src/core/AgentLoop.cpp
     src/core/Breaker.h
     src/core/EventBus.h        src/core/EventBus.cpp
+    src/core/Scheduler.h       src/core/Scheduler.cpp
     src/llm/SseParser.h        src/llm/SseParser.cpp
     src/llm/HttpClient.h       src/llm/HttpClient.cpp
     src/llm/ToolCallAccumulator.h src/llm/ToolCallAccumulator.cpp

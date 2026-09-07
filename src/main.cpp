@@ -5,8 +5,11 @@
 #include "core/AgentLoop.h"
 #include "core/AppContext.h"
 #include "core/EventBus.h"
+#include "core/Scheduler.h"
+#include "db/Database.h"
 #include "llm/ChatClient.h"
 #include "llm/ProviderManager.h"
+#include "memory/MemoryManager.h"
 #include "tools/CommandTools.h"
 #include "tools/ExtraTools.h"
 #include "tools/FileTools.h"
@@ -71,10 +74,23 @@ int main(int argc, char* argv[]) {
     ExtraTools::registerAll(tools);
 
     EventBus events(appdirs::file(QStringLiteral("logs/events.jsonl")));
-    ChatClient chat;
-    AgentLoop loop({&chat, &tools, &providers, &events});
+    Database db;
+    if (!db.open(appdirs::file(QStringLiteral("miderforge.db")))) {
+        QMessageBox::warning(nullptr, QStringLiteral("Miderforge"),
+                             QStringLiteral("数据库打开失败：%1").arg(db.lastError()));
+        return 1;
+    }
+    db.loadVecExtension(); // v1：仅要求加载成功，不使用向量检索
+    events.setDatabase(&db); // 事件双写 events 表
+    MemoryManager memory(&db, appdirs::file(QStringLiteral("memory/core.md")));
+    if (memory.loadL1().isEmpty())
+        memory.saveL1(QStringLiteral("# 用户画像\n\n# 编码偏好\n\n# 禁区\n\n# 活跃项目状态\n"));
 
-    MainWindow win(&providers, &loop, &events);
+    ChatClient chat;
+    AgentLoop loop({&chat, &tools, &providers, &events, &db, &memory});
+    Scheduler scheduler(&db, &loop);
+
+    MainWindow win(&providers, &loop, &events, &db, &memory);
     win.show();
     const int rc = app.exec();
 

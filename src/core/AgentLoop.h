@@ -11,7 +11,9 @@
 namespace miderforge {
 
 class ChatClient;
+class Database;
 class EventBus;
+class MemoryManager;
 class ToolRegistry;
 class ProviderManager;
 
@@ -25,6 +27,7 @@ public:
         Executing,          // 执行中（工具调用）
         Observing,          // 观察中（结果回填）
         AwaitingPermission, // 等待用户授权
+        Reflecting,         // 反思中（收尾提炼：摘要/L1/教训）
         Done,               // 已完成
         Failed,             // 失败
         Halted              // 已熔断
@@ -36,6 +39,8 @@ public:
         ToolRegistry* tools = nullptr;
         ProviderManager* providers = nullptr;
         EventBus* events = nullptr;
+        Database* db = nullptr;         // M2：tasks 表持久化（可空）
+        MemoryManager* mem = nullptr;   // M2：记忆注入与收尾提炼（可空）
     };
     AgentLoop(Deps deps, QObject* parent = nullptr);
 
@@ -43,6 +48,7 @@ public:
     void cancel();
     bool isRunning() const { return m_running; }
     long long totalTokens() const { return m_breaker.tokens(); }
+    qint64 currentTaskId() const { return m_taskId; }
 
     // 权限卡片回调：decision 0=允许一次 1=本会话总是允许 2=拒绝
     void resumePermission(const QString& callId, int decision);
@@ -78,7 +84,12 @@ private:
     void finishToolBatch(); // 工具批执行完：熔断检查 → 下一轮或继续
     void executePendingTool(int decision);
     void executeToolCall(const QString& callId, const QString& name, const QString& argumentsJson);
+    void beginFinalize(bool ok, const QString& summaryOrReason); // 任务收尾（规格 9：成败都走）
+    void onFinalizeFinished(const StreamResult& result);
+    void finalizeTaskWrites(const QJsonObject& parsed); // 收尾产物落库（摘要/L1/教训）
+    void persistTaskEnd(bool ok, const QString& resultSummary, const QString& failureReason);
     QString buildSystemPrompt() const;
+    QString buildFinalizePrompt(bool ok, const QString& summaryOrReason) const;
     QString classifyTarget(const QString& toolName, const QString& argsJson, PermissionGate::Kind* kind) const;
 
     Deps m_deps;
@@ -90,6 +101,9 @@ private:
     int m_round = 0;
     bool m_running = false;
     State m_state = State::Idle;
+    bool m_finalizing = false;      // 收尾 LLM 调用进行中
+    bool m_finalizeOk = false;      // 本次收尾对应的任务结局
+    QString m_finalizeSummary;      // 结局摘要（熔断原因或最终答复）
 
     // 待授权工具调用（AwaitingPermission 状态下挂起）
     QString m_pendingCallId;

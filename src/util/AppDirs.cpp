@@ -6,7 +6,8 @@
 namespace miderforge::appdirs {
 
 QString root() {
-    return QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + QLatin1String("/Miderforge");
+    // AppDataLocation 已含应用名（applicationName="Miderforge"）→ %APPDATA%\Miderforge
+    return QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
 }
 
 QString file(const QString& rel) {

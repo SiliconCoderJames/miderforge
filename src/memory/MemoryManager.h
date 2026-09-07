@@ -1,6 +1,7 @@
 // 记忆管理（规格 6 分层记忆）：L1 核心记忆文件、L2 会话摘要（滚动 50 条）、L3 档案库；
 // 检索 = FTS5 trigram（短词 LIKE 兜底）→ 综合评分 → Top5 → access_count 回写
 #pragma once
+#include <QDateTime>
 #include <QVector>
 #include <QString>
 
@@ -28,6 +29,8 @@ public:
     QString loadL1() const;              // 文件不存在返回空串
     bool saveL1(const QString& content) const;
     long long l1Tokens() const;          // 当前 L1 token 占用（导航底部进度条数据源）
+    // 用户 24h 内手改保护（规格 6）：Agent 自动改写前必须检查；Agent 自己的写入不算用户编辑
+    bool l1UserEditedRecently() const;
 
     // ---- L3 档案库 ----
     qint64 addMemory(const QString& type, const QString& content, double importance);
@@ -53,6 +56,7 @@ private:
 
     Database* m_db = nullptr;
     QString m_l1Path;
+    mutable QDateTime m_lastAgentWrite; // Agent 最近一次写 L1 的文件 mtime（用户保护判定）
 };
 
 } // namespace miderforge
