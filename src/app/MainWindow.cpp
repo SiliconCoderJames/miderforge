@@ -230,8 +230,8 @@ void MainWindow::refreshProviderCombo() {
     m_providerCombo->clear();
     const ProviderConfig* active = m_pm ? m_pm->activeProvider() : nullptr;
     for (const auto& cfg : m_pm->all()) {
-        const QString dot = theme::coloredDot(cfg.configured ? theme::colors::success
-                                                             : theme::colors::textDim);
+        // QComboBox 不渲染富文本：用纯文本圆点（状态色由状态栏的富文本圆点表达）
+        const QChar dot = cfg.configured ? QChar(0x25CF) : QChar(0x25CB); // ● / ○
         m_providerCombo->addItem(QStringLiteral("%1 %2").arg(dot, cfg.name), cfg.name);
     }
     if (active) {
