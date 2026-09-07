@@ -1,18 +1,37 @@
 // 文件类工具实现
 #include "tools/FileTools.h"
+#include "core/AppContext.h"
 #include "tools/ToolRegistry.h"
 #include <QDir>
+#include <QDirIterator>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QRegularExpression>
 
 namespace miderforge::FileTools {
 
-static constexpr qint64 kMaxReadBytes = 1024 * 1024; // 1MB 读取上限（规格硬约束）
+static constexpr qint64 kMaxReadBytes = 1024 * 1024;      // 1MB 读取上限（规格硬约束）
+static constexpr qint64 kMaxWriteBytes = 4 * 1024 * 1024; // 决策: 单次写入 4MB 上限防失控
+static constexpr int kMaxSearchResults = 200;             // 决策: 搜索结果封顶
 
-void registerReadFile(ToolRegistry& reg) {
+QString resolveWorkspacePath(const QString& rawPath, const QString& workspaceRoot) {
+    const QString trimmed = rawPath.trimmed();
+    if (QFileInfo(trimmed).isAbsolute() || trimmed.contains(QLatin1Char(':')))
+        return QDir::cleanPath(trimmed);
+    if (workspaceRoot.isEmpty())
+        return QDir::cleanPath(trimmed);
+    return QDir::cleanPath(workspaceRoot + QLatin1Char('/') + trimmed);
+}
+
+static QString envelope(const QJsonObject& obj) {
+    return QJsonDocument(obj).toJson(QJsonDocument::Compact);
+}
+
+// ---------- read_file（三档均自动） ----------
+static void registerReadFile(ToolRegistry& reg) {
     ToolDef def;
     def.name = QStringLiteral("read_file");
     def.description = QStringLiteral("读取指定路径的文本文件内容（UTF-8），上限 1MB");
@@ -27,12 +46,12 @@ void registerReadFile(ToolRegistry& reg) {
         {"required", QJsonArray{"path"}},
     };
     def.handler = [](const QJsonObject& args, QString* err) -> QString {
-        const QString rawPath = args.value("path").toString();
-        if (rawPath.isEmpty()) {
+        const QString path = resolveWorkspacePath(args.value("path").toString(),
+                                                  AppContext::instance().workspaceRoot);
+        if (path.isEmpty()) {
             if (err) *err = QStringLiteral("path 参数为空");
             return {};
         }
-        const QString path = QDir::fromNativeSeparators(QDir::cleanPath(rawPath));
         QFileInfo info(path);
         if (!info.exists()) {
             if (err) *err = QStringLiteral("文件不存在：%1").arg(path);
@@ -51,23 +70,200 @@ void registerReadFile(ToolRegistry& reg) {
             if (err) *err = QStringLiteral("无法打开：%1").arg(f.errorString());
             return {};
         }
-        // 全链路 UTF-8：字节读入后 fromUtf8 解码（踩坑清单 #7）
         const QByteArray bytes = f.readAll();
-        const QString content = QString::fromUtf8(bytes);
-        // envelope 形式回填，便于模型区分文件内容与错误信息
-        return QJsonDocument(QJsonObject{
+        return envelope(QJsonObject{
             {"ok", true},
             {"path", path},
             {"bytes", int(bytes.size())},
-            {"content", content},
-        }).toJson(QJsonDocument::Compact);
+            {"content", QString::fromUtf8(bytes)}, // 全链路 UTF-8（踩坑清单 #7）
+        });
+    };
+    reg.add(std::move(def));
+}
+
+// ---------- write_file（权限：Suggest 需确认 / Auto Edit 区内自动 / Full Access 自动） ----------
+static void registerWriteFile(ToolRegistry& reg) {
+    ToolDef def;
+    def.name = QStringLiteral("write_file");
+    def.description = QStringLiteral("写入文本文件（UTF-8），必须带完整新内容；相对路径以工作区为根");
+    def.parameters = QJsonObject{
+        {"type", "object"},
+        {"properties", QJsonObject{
+                           {"path", QJsonObject{
+                                        {"type", "string"},
+                                        {"description", "目标文件路径（绝对或相对工作区）"},
+                                    }},
+                           {"content", QJsonObject{
+                                           {"type", "string"},
+                                           {"description", "文件的完整新内容"},
+                                       }},
+                       }},
+        {"required", QJsonArray{"path", "content"}},
+    };
+    def.handler = [](const QJsonObject& args, QString* err) -> QString {
+        const QString path = resolveWorkspacePath(args.value("path").toString(),
+                                                  AppContext::instance().workspaceRoot);
+        const QString content = args.value("content").toString();
+        if (path.isEmpty()) {
+            if (err) *err = QStringLiteral("path 参数为空");
+            return {};
+        }
+        const qint64 bytes = content.toUtf8().size();
+        if (bytes > kMaxWriteBytes) {
+            if (err) *err = QStringLiteral("内容超过 4MB 写入上限");
+            return {};
+        }
+        QFileInfo info(path);
+        if (info.exists() && info.isDir()) {
+            if (err) *err = QStringLiteral("目标是已存在的目录：%1").arg(path);
+            return {};
+        }
+        QDir().mkpath(info.absolutePath()); // 决策: 自动创建父目录
+        QFile f(path);
+        if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+            if (err) *err = QStringLiteral("无法写入：%1").arg(f.errorString());
+            return {};
+        }
+        const QByteArray bytes8 = content.toUtf8();
+        f.write(bytes8);
+        f.close();
+        return envelope(QJsonObject{
+            {"ok", true},
+            {"path", path},
+            {"bytes", int(bytes8.size())},
+            {"message", QStringLiteral("写入成功")},
+        });
+    };
+    reg.add(std::move(def));
+}
+
+// ---------- list_dir（三档均自动） ----------
+static void registerListDir(ToolRegistry& reg) {
+    ToolDef def;
+    def.name = QStringLiteral("list_dir");
+    def.description = QStringLiteral("列出目录内容（名称/类型/大小），目录优先");
+    def.parameters = QJsonObject{
+        {"type", "object"},
+        {"properties", QJsonObject{
+                           {"path", QJsonObject{
+                                        {"type", "string"},
+                                        {"description", "目录路径（默认工作区根）"},
+                                    }},
+                       }},
+    };
+    def.handler = [](const QJsonObject& args, QString* err) -> QString {
+        QString path = args.value("path").toString();
+        if (path.trimmed().isEmpty())
+            path = AppContext::instance().workspaceRoot;
+        path = resolveWorkspacePath(path, AppContext::instance().workspaceRoot);
+        QFileInfo info(path);
+        if (!info.isDir()) {
+            if (err) *err = QStringLiteral("不是有效目录：%1").arg(path);
+            return {};
+        }
+        QJsonArray entries;
+        const QFileInfoList list =
+            QDir(path).entryInfoList(QDir::AllEntries | QDir::Hidden, QDir::DirsFirst | QDir::Name);
+        for (const QFileInfo& fi : list) {
+            if (entries.size() >= 500) // 决策: 单次列目录封顶 500 条
+                break;
+            entries.append(QJsonObject{
+                {"name", fi.fileName()},
+                {"dir", fi.isDir()},
+                {"bytes", fi.isDir() ? 0 : int(fi.size())},
+            });
+        }
+        return envelope(QJsonObject{{"ok", true}, {"path", path}, {"entries", entries}});
+    };
+    reg.add(std::move(def));
+}
+
+// ---------- search_files（三档均自动）：文件名 glob + 可选内容正则 ----------
+static void registerSearchFiles(ToolRegistry& reg) {
+    ToolDef def;
+    def.name = QStringLiteral("search_files");
+    def.description = QStringLiteral("在工作区内递归搜索：按文件名通配符过滤，可再按内容正则匹配");
+    def.parameters = QJsonObject{
+        {"type", "object"},
+        {"properties", QJsonObject{
+                           {"pattern", QJsonObject{
+                                           {"type", "string"},
+                                           {"description", "文件名通配符，如 *.cpp（* 为全部文件）"},
+                                       }},
+                           {"content", QJsonObject{
+                                           {"type", "string"},
+                                           {"description", "可选：文件内容正则表达式（UTF-8 文本文件）"},
+                                       }},
+                           {"path", QJsonObject{
+                                        {"type", "string"},
+                                        {"description", "搜索根目录（默认工作区）"},
+                                    }},
+                       }},
+        {"required", QJsonArray{"pattern"}},
+    };
+    def.handler = [](const QJsonObject& args, QString* err) -> QString {
+        const QString pattern = args.value("pattern").toString();
+        if (pattern.isEmpty()) {
+            if (err) *err = QStringLiteral("pattern 参数为空");
+            return {};
+        }
+        QString root = args.value("path").toString();
+        if (root.trimmed().isEmpty())
+            root = AppContext::instance().workspaceRoot;
+        root = resolveWorkspacePath(root, AppContext::instance().workspaceRoot);
+
+        const QString contentRe = args.value("content").toString();
+        QRegularExpression re;
+        if (!contentRe.isEmpty()) {
+            re = QRegularExpression(contentRe, QRegularExpression::CaseInsensitiveOption);
+            if (!re.isValid()) {
+                if (err) *err = QStringLiteral("内容正则不合法：%1").arg(re.errorString());
+                return {};
+            }
+        }
+
+        QJsonArray hits;
+        int scanned = 0;
+        QDirIterator it(root, QDir::Files, QDirIterator::Subdirectories);
+        while (it.hasNext()) {
+            const QString path = it.next();
+            ++scanned;
+            const QString name = QFileInfo(path).fileName();
+            if (!QDir::match(pattern, name))
+                continue;
+            if (!re.isValid()) {
+                hits.append(path);
+                if (hits.size() >= kMaxSearchResults)
+                    break;
+                continue;
+            }
+            QFile f(path);
+            if (f.size() > kMaxReadBytes)
+                continue; // 大文件跳过内容匹配
+            if (!f.open(QIODevice::ReadOnly))
+                continue;
+            const QByteArray bytes = f.readAll();
+            if (bytes.contains('\0'))
+                continue; // 二进制文件跳过
+            const QString text = QString::fromUtf8(bytes);
+            if (re.match(text).hasMatch()) {
+                hits.append(path);
+                if (hits.size() >= kMaxSearchResults)
+                    break;
+            }
+        }
+        return envelope(QJsonObject{
+            {"ok", true}, {"root", root}, {"scanned", scanned}, {"hits", hits}});
     };
     reg.add(std::move(def));
 }
 
 void registerAll(ToolRegistry& reg) {
     registerReadFile(reg);
-    // M1 在此追加：write_file / list_dir / search_files / run_command / read_skill / http_fetch
+    registerWriteFile(reg);
+    registerListDir(reg);
+    registerSearchFiles(reg);
+    // run_command 在 CommandTools、read_skill 在 SkillTools、http_fetch 在 NetTools 中注册
 }
 
 } // namespace miderforge::FileTools

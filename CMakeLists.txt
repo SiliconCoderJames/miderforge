@@ -24,10 +24,13 @@ add_library(mider_core STATIC
     src/app/Theme.h            src/app/Theme.cpp
     src/app/ChatWidgets.h      src/app/ChatWidgets.cpp
     src/app/SessionView.h      src/app/SessionView.cpp
+    src/app/AuditLogView.h     src/app/AuditLogView.cpp
     src/app/MainWindow.h       src/app/MainWindow.cpp
     src/app/FirstRunWizard.h   src/app/FirstRunWizard.cpp
     src/core/AppContext.h      src/core/AppContext.cpp
     src/core/AgentLoop.h       src/core/AgentLoop.cpp
+    src/core/Breaker.h
+    src/core/EventBus.h        src/core/EventBus.cpp
     src/llm/SseParser.h        src/llm/SseParser.cpp
     src/llm/HttpClient.h       src/llm/HttpClient.cpp
     src/llm/ToolCallAccumulator.h src/llm/ToolCallAccumulator.cpp
@@ -35,6 +38,9 @@ add_library(mider_core STATIC
     src/llm/ProviderManager.h  src/llm/ProviderManager.cpp
     src/tools/ToolRegistry.h   src/tools/ToolRegistry.cpp
     src/tools/FileTools.h      src/tools/FileTools.cpp
+    src/tools/CommandTools.h   src/tools/CommandTools.cpp
+    src/tools/ExtraTools.h     src/tools/ExtraTools.cpp
+    src/tools/PermissionGate.h src/tools/PermissionGate.cpp
     src/util/AppDirs.h         src/util/AppDirs.cpp
     src/util/Dpapi.h           src/util/Dpapi.cpp
     src/util/Log.h             src/util/Log.cpp
@@ -58,6 +64,9 @@ add_executable(mider_tests
     tests/test_sse.cpp
     tests/test_toolargs.cpp
     tests/test_mockstream.cpp
+    tests/test_permission.cpp
+    tests/test_breaker.cpp
+    tests/test_command.cpp
 )
 target_link_libraries(mider_tests PRIVATE mider_core Qt6::Network doctest::doctest)
 if(MSVC)

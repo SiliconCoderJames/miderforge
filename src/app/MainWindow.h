@@ -14,14 +14,16 @@ class QPushButton;
 namespace miderforge {
 
 class AgentLoop;
+class AuditLogView;
 class ChatClient;
+class EventBus;
 class ProviderManager;
 class SessionView;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
 public:
-    MainWindow(ProviderManager* pm, AgentLoop* loop, QWidget* parent = nullptr);
+    MainWindow(ProviderManager* pm, AgentLoop* loop, EventBus* events, QWidget* parent = nullptr);
 
 private slots:
     void switchNav(int index);
@@ -39,6 +41,7 @@ private:
 
     ProviderManager* m_pm = nullptr;
     AgentLoop* m_loop = nullptr;
+    EventBus* m_events = nullptr;
 
     QTreeWidget* m_nav = nullptr;
     QStackedWidget* m_stack = nullptr;

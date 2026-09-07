@@ -36,6 +36,8 @@ SessionView::SessionView(AgentLoop* loop, QWidget* parent)
 
     // ---- AgentLoop 事件接线（全部经信号回 UI 线程） ----
     connect(m_loop, &AgentLoop::taskStarted, this, &SessionView::onTaskStarted);
+    connect(m_loop, &AgentLoop::stateChanged, this, &SessionView::onStateChanged);
+    connect(m_loop, &AgentLoop::toolAwaitingConfirm, this, &SessionView::onToolAwaitingConfirm);
     connect(m_loop, &AgentLoop::roundChanged, this, &SessionView::onRoundChanged);
     connect(m_loop, &AgentLoop::thinkingDelta, this, [this](const QString& d) {
         if (!m_curAssistant) {
@@ -141,6 +143,13 @@ QWidget* SessionView::buildInputArea() {
     return frame;
 }
 
+ToolCallCard* SessionView::makeCard(const QString& callId, const QString& toolName) {
+    auto* card = new ToolCallCard(callId, toolName, m_feedHost);
+    // 权限三按钮 → AgentLoop 恢复执行（0=允许一次 1=总是允许 2=拒绝）
+    connect(card, &ToolCallCard::permissionDecided, m_loop, &AgentLoop::resumePermission);
+    return card;
+}
+
 void SessionView::appendToFeed(QWidget* w) {
     // stretch 在索引 0，插入到 stretch 之后保持贴底布局
     m_feedLay->insertWidget(m_feedLay->count() - 1, w);
@@ -211,6 +220,41 @@ void SessionView::onTaskStarted(const QString& goal) {
     m_goalLabel->setText(QStringLiteral("当前任务：%1").arg(shortGoal));
 }
 
+void SessionView::onStateChanged(const QString& stateText) {
+    // 状态标签颜色映射（规格 4.3：规划中/执行中/等待确认/已完成/已熔断）
+    if (stateText == QStringLiteral("等待确认"))
+        setStateLabel(stateText, theme::colors::warn);
+    else if (stateText == QStringLiteral("已完成"))
+        setStateLabel(stateText, theme::colors::success);
+    else if (stateText == QStringLiteral("已熔断") || stateText == QStringLiteral("失败"))
+        setStateLabel(stateText, theme::colors::error);
+    else if (stateText == QStringLiteral("空闲"))
+        setStateLabel(stateText, theme::colors::textDim);
+    else
+        setStateLabel(stateText, theme::colors::accent);
+}
+
+void SessionView::onToolAwaitingConfirm(const QString& callId, const QString& toolName,
+                                        const QString& riskNote, const QString& target) {
+    ToolCallCard* card = m_idCards.value(callId, nullptr);
+    if (!card) {
+        card = makeCard(callId, toolName);
+        m_idCards.insert(callId, card);
+        appendToFeed(card);
+    }
+    card->setAwaitingConfirm(); // 展开卡片露出三按钮（允许一次/总是允许/拒绝）
+    // 决策: v1 在消息流中追加一条风险说明行（规格 4.10 的弹窗模式在设置页后续补充开关）
+    auto* note = new QLabel(m_feedHost);
+    note->setWordWrap(true);
+    note->setTextFormat(Qt::RichText);
+    note->setText(QStringLiteral("<span style='color:%1'>⏸ <b>待确认</b>：%2<br/>目标：<code>%3</code><br/>"
+                                 "在上方工具卡片中选择〔允许一次〕〔本会话总是允许〕或〔拒绝〕。</span>")
+                      .arg(theme::colors::warn.name(), riskNote, target.toHtmlEscaped()));
+    appendToFeed(note);
+    setStateLabel(QStringLiteral("等待确认"), theme::colors::warn);
+    scrollToEnd();
+}
+
 void SessionView::onRoundChanged(int round, int maxRounds) {
     m_roundLabel->setText(QStringLiteral("第 %1/%2 轮").arg(round).arg(maxRounds));
     m_roundCards.clear(); // 新一轮的 index 重新从 0 编号
@@ -224,7 +268,7 @@ void SessionView::onRoundChanged(int round, int maxRounds) {
 void SessionView::onToolCallDelta(int index, const QString& id, const QString& name, const QString& args) {
     ToolCallCard* card = m_roundCards.value(index, nullptr);
     if (!card) {
-        card = new ToolCallCard(id.isEmpty() ? QStringLiteral("idx_%1").arg(index) : id, name, m_feedHost);
+        card = makeCard(id.isEmpty() ? QStringLiteral("idx_%1").arg(index) : id, name);
         m_roundCards.insert(index, card);
         appendToFeed(card);
     }
@@ -237,7 +281,7 @@ void SessionView::onToolCallStarted(const QString& callId, const QString& name, 
     ToolCallCard* card = m_idCards.value(callId, nullptr);
     if (!card) {
         // 个别响应无 delta 碎片：直接按 started 建卡
-        card = new ToolCallCard(callId, name, m_feedHost);
+        card = makeCard(callId, name);
         m_idCards.insert(callId, card);
         appendToFeed(card);
     }

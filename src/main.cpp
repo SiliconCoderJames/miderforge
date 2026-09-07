@@ -4,8 +4,11 @@
 #include "app/Theme.h"
 #include "core/AgentLoop.h"
 #include "core/AppContext.h"
+#include "core/EventBus.h"
 #include "llm/ChatClient.h"
 #include "llm/ProviderManager.h"
+#include "tools/CommandTools.h"
+#include "tools/ExtraTools.h"
 #include "tools/FileTools.h"
 #include "tools/ToolRegistry.h"
 #include "util/AppDirs.h"
@@ -61,13 +64,17 @@ int main(int argc, char* argv[]) {
         wizard.exec();
     }
 
-    // 工具注册表 + Agent 循环
+    // 工具注册表（v1 全集 7 工具）+ 事件审计 + Agent 循环
     ToolRegistry tools;
     FileTools::registerAll(tools);
-    ChatClient chat;
-    AgentLoop loop({&chat, &tools, &providers});
+    CommandTools::registerAll(tools);
+    ExtraTools::registerAll(tools);
 
-    MainWindow win(&providers, &loop);
+    EventBus events(appdirs::file(QStringLiteral("logs/events.jsonl")));
+    ChatClient chat;
+    AgentLoop loop({&chat, &tools, &providers, &events});
+
+    MainWindow win(&providers, &loop, &events);
     win.show();
     const int rc = app.exec();
 

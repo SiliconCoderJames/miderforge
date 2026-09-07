@@ -40,6 +40,7 @@ private slots:
 private:
     QWidget* buildStatusStrip();
     QWidget* buildInputArea();
+    ToolCallCard* makeCard(const QString& callId, const QString& toolName);
     void appendToFeed(QWidget* w);
     void scrollToEnd();
     void setStateLabel(const QString& text, const QColor& color);
@@ -48,6 +49,9 @@ private:
 
     // AgentLoop 事件
     void onTaskStarted(const QString& goal);
+    void onStateChanged(const QString& stateText);
+    void onToolAwaitingConfirm(const QString& callId, const QString& toolName, const QString& riskNote,
+                               const QString& target);
     void onRoundChanged(int round, int maxRounds);
     void onToolCallDelta(int index, const QString& id, const QString& name, const QString& args);
     void onToolCallStarted(const QString& callId, const QString& name, const QString& args);

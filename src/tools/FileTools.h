@@ -1,16 +1,18 @@
-// 文件类工具：M0 注册 read_file；write_file/list_dir/search_files 在 M1 随权限门一起接入
+// 文件类工具：read_file / write_file / list_dir / search_files（权限判定在 AgentLoop 的权限门完成）
 #pragma once
+#include <QString>
+
 namespace miderforge {
 
 class ToolRegistry;
 
 namespace FileTools {
 
-// read_file：读取文本文件（≤1MB），三档权限均自动放行
-void registerReadFile(ToolRegistry& reg);
-
-// M1 一次性注册全部工具
+// M1 一次性注册全部文件类工具（read_file 权限默认三档自动；write_file 见权限门）
 void registerAll(ToolRegistry& reg);
+
+// 相对路径 → 绝对路径（相对工作区解析）；空路径返回工作区本身
+QString resolveWorkspacePath(const QString& rawPath, const QString& workspaceRoot);
 
 } // namespace FileTools
 } // namespace miderforge
