@@ -10,6 +10,7 @@
 #include "llm/ChatClient.h"
 #include "llm/ProviderManager.h"
 #include "memory/MemoryManager.h"
+#include "notify/EmailNotifier.h"
 #include "skills/SkillManager.h"
 #include "tools/CommandTools.h"
 #include "tools/ExtraTools.h"
@@ -92,8 +93,10 @@ int main(int argc, char* argv[]) {
     ChatClient chat;
     AgentLoop loop({&chat, &tools, &providers, &events, &db, &memory, &skills});
     Scheduler scheduler(&db, &loop);
+    EmailNotifier mail(&events);
+    mail.loadConfig();
 
-    MainWindow win(&providers, &loop, &events, &db, &memory, &skills);
+    MainWindow win(&providers, &loop, &events, &db, &memory, &skills, &mail);
     win.show();
     const int rc = app.exec();
 

@@ -56,10 +56,15 @@ void AgentLoop::start(const QString& goal, qint64 taskId) {
     m_goal = goal;
     m_finalizing = false;
     m_toolCallsThisTask = 0;
+    m_tier = Router::classify(goal); // M4：三档路由按任务语义选档
+    m_consecToolFailures = 0;
+    m_tierEscalated = false;
+    m_transportFailures = 0;
+    m_failedOver = false;
     m_history = QJsonArray();
     m_round = 0;
     m_running = true;
-    m_breaker = Breaker(); // 每任务独立预算
+    m_breaker = Breaker(AppContext::instance().limits); // 每任务独立预算（设置页可改）
     m_gate.resetSessionGrants(); // 决策: "总是允许"随任务失效（会话粒度的保守实现）
     m_pendingCallId.clear();
 
@@ -113,13 +118,14 @@ void AgentLoop::runRound() {
         emit loopFailed(QStringLiteral("未配置任何大模型供应商，请先完成首次配置"));
         return;
     }
-    // 决策: M1 全部走 main 档；fast/flagship 三档路由在 M4 接入 Router
-    const QString model = m_deps.providers->modelForTier(*provider, QStringLiteral("main"));
+    // M4：三档路由；规格 8 默认走 main 档，fast/flagship 由 Router 分类或失败升档产生
+    const QString tierName = Router::tierName(m_tier);
+    const QString model = m_deps.providers->modelForTier(*provider, tierName);
 
     if (m_deps.events)
         m_deps.events->append(QStringLiteral("llm_request"), m_taskId,
                               QJsonObject{{"provider", provider->name}, {"model", model},
-                                          {"round", m_round}});
+                                          {"round", m_round}, {"tier", tierName}});
 
     QJsonArray messages;
     QJsonObject sys;
@@ -377,10 +383,23 @@ void AgentLoop::executeToolCall(const QString& callId, const QString& name, cons
                                           {"ms", double(ms)},
                                           {"result", resultText.left(2000)}});
 
-    if (ok)
+    if (ok) {
         m_breaker.recordToolSuccess();
-    else
+        m_consecToolFailures = 0;
+    } else {
         m_breaker.recordToolFailure(resultText.left(200)); // 相同失败文本检测
+        // M4：同一工具连续失败 2 次 → 升档（重试 2 次后自动升档，规格 8）
+        ++m_consecToolFailures;
+        if (m_consecToolFailures >= 2 && !m_tierEscalated
+            && m_tier != Router::Tier::Flagship) {
+            m_tier = Router::escalate(m_tier);
+            m_tierEscalated = true;
+            m_consecToolFailures = 0;
+            if (m_deps.events)
+                m_deps.events->append(QStringLiteral("tier_escalate"), m_taskId,
+                                      QJsonObject{{"tier", Router::tierName(m_tier)}});
+        }
+    }
     // read_skill 加载 = 技能使用统计（规格 7）
     if (ok && name == QLatin1String("read_skill") && m_deps.skills) {
         const QJsonObject args = QJsonDocument::fromJson(argumentsJson.toUtf8()).object();
@@ -576,6 +595,26 @@ void AgentLoop::persistTaskEnd(bool ok, const QString& resultSummary, const QStr
          QDateTime::currentSecsSinceEpoch(), m_taskId});
 }
 
+void AgentLoop::handleTransportFailure(const QString& error, int httpCode) {
+    // M4 故障转移（规格 8）：当前供应商连续 2 次 429/超时/5xx → 切 failover_backup
+    const bool transportLike = (httpCode == 0 || httpCode == 429 || httpCode >= 500);
+    if (!transportLike)
+        return;
+    ++m_transportFailures;
+    if (m_transportFailures < 2 || !m_deps.providers)
+        return;
+    if (m_deps.providers->switchToFailover(error)) {
+        m_failedOver = true;
+        m_transportFailures = 0;
+        if (m_deps.events)
+            m_deps.events->append(QStringLiteral("provider_switch"), m_taskId,
+                                  QJsonObject{{"reason", error}});
+        // 自动重试本轮：任务仍可继续
+        m_running = true;
+        runRound();
+    }
+}
+
 void AgentLoop::onStreamFailed(const QString& error, int httpCode, bool willRetry) {
     if (!m_running)
         return;
@@ -583,7 +622,16 @@ void AgentLoop::onStreamFailed(const QString& error, int httpCode, bool willRetr
         emit streamRetrying(error);
         return;
     }
-    m_running = false;
+    const int failuresBefore = m_transportFailures;
+    // 已故障转移过的不再重复切（备胎也挂则真失败）
+    if (!m_failedOver && failuresBefore < 2) {
+        m_running = false; // handleTransportFailure 内部可能重启任务
+        setState(State::Failed);
+        handleTransportFailure(error, httpCode);
+        if (m_running)
+            return; // 已切换供应商并重启
+        m_running = false;
+    }
     setState(State::Failed);
     persistTaskEnd(false, QString(), error);
     if (m_deps.events)

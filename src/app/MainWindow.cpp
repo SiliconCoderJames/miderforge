@@ -3,20 +3,26 @@
 #include "app/AuditLogView.h"
 #include "app/FirstRunWizard.h"
 #include "app/MemoryView.h"
-#include "app/SkillView.h"
+#include "app/ProviderPanel.h"
 #include "app/SessionView.h"
+#include "app/SettingsDialog.h"
+#include "app/SkillView.h"
 #include "app/TaskQueueView.h"
 #include "app/Theme.h"
 #include "core/AgentLoop.h"
 #include "core/AppContext.h"
 #include "llm/ProviderManager.h"
+#include "notify/EmailNotifier.h"
 #include <QAction>
 #include <QApplication>
 #include <QHBoxLayout>
 #include <QHeaderView>
+#include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QStatusBar>
+#include <QStyle>
+#include <QSystemTrayIcon>
 #include <QToolBar>
 #include <QVBoxLayout>
 
@@ -29,9 +35,9 @@ constexpr int kNavSettingsIndex = 6;
 } // namespace
 
 MainWindow::MainWindow(ProviderManager* pm, AgentLoop* loop, EventBus* events, Database* db,
-                       MemoryManager* mem, SkillManager* skills, QWidget* parent)
+                       MemoryManager* mem, SkillManager* skills, EmailNotifier* mail, QWidget* parent)
     : QMainWindow(parent), m_pm(pm), m_loop(loop), m_events(events), m_db(db), m_mem(mem),
-      m_skills(skills) {
+      m_skills(skills), m_mail(mail) {
     setWindowTitle(QStringLiteral("Miderforge"));
     resize(1440, 900);
     setMinimumSize(1024, 680);
@@ -57,6 +63,54 @@ MainWindow::MainWindow(ProviderManager* pm, AgentLoop* loop, EventBus* events, D
                 if (ret == QMessageBox::Yes)
                     m_loop->acceptSkillProposal(name, description, md);
             });
+
+    // ---- M4 系统托盘（规格 4.9）：常驻托盘 + 任务完成/失败/熔断气泡 + 邮件 ----
+    m_tray = new QSystemTrayIcon(this);
+    m_tray->setIcon(style()->standardIcon(QStyle::SP_ComputerIcon));
+    m_tray->setToolTip(QStringLiteral("Miderforge"));
+    auto* trayMenu = new QMenu(this);
+    QAction* showAction = trayMenu->addAction(QStringLiteral("显示主窗口"));
+    QAction* newTaskAction = trayMenu->addAction(QStringLiteral("新建任务"));
+    trayMenu->addSeparator();
+    QAction* quitAction = trayMenu->addAction(QStringLiteral("退出"));
+    connect(showAction, &QAction::triggered, this, [this] {
+        showNormal();
+        activateWindow();
+    });
+    connect(newTaskAction, &QAction::triggered, this, [this] {
+        showNormal();
+        switchNav(1);
+    });
+    connect(quitAction, &QAction::triggered, qApp, &QApplication::quit);
+    m_tray->setContextMenu(trayMenu);
+    m_tray->show();
+
+    // 任务完成/失败/熔断 → 托盘气泡 + 邮件通知（规格 11 触发条件）
+    connect(m_loop, &AgentLoop::loopFinished, this, [this](bool ok, const QString& summary) {
+        if (m_tray)
+            m_tray->showMessage(QStringLiteral("Miderforge"),
+                                ok ? QStringLiteral("任务已完成：%1").arg(summary.left(80))
+                                   : QStringLiteral("任务熔断/失败：%1").arg(summary.left(80)),
+                                QSystemTrayIcon::Information, 5000);
+        if (m_mail) {
+            QString err;
+            m_mail->send(ok ? QStringLiteral("Miderforge 任务完成")
+                            : QStringLiteral("Miderforge 任务失败/熔断"),
+                         QStringLiteral("<p>状态：%1</p><pre>%2</pre>")
+                             .arg(ok ? QStringLiteral("succeeded") : QStringLiteral("failed"),
+                                  summary.toHtmlEscaped()),
+                         &err);
+        }
+    });
+    // 供应商切换 → 状态灯刷新 + 托盘告警（探测恢复由供应商视图「测试连接」手动触发）
+    connect(m_pm, &ProviderManager::providerChanged, this, [this] {
+        refreshProviderCombo();
+        refreshStatusLabels();
+        if (m_pm->failedOver() && m_tray)
+            m_tray->showMessage(QStringLiteral("Miderforge"),
+                                QStringLiteral("供应商连续失败，已切换到故障转移备胎"),
+                                QSystemTrayIcon::Warning, 5000);
+    });
 }
 
 void MainWindow::buildCentral() {
@@ -126,7 +180,7 @@ void MainWindow::buildCentral() {
     m_stack->addWidget(new TaskQueueView(m_db, m_loop, m_stack)); // 1 任务队列（M2 实装）
     m_stack->addWidget(new SkillView(m_skills, m_stack)); // 2 技能库（M3 实装）
     m_stack->addWidget(new MemoryView(m_mem, m_stack)); // 3 记忆（M2 实装）
-    m_stack->addWidget(makePlaceholder(QStringLiteral("🔌 供应商面板将在 M4 里程碑实装\n（当前可在工具栏切换供应商）")));
+    m_stack->addWidget(new ProviderPanel(m_pm, m_stack)); // 4 供应商（M4 实装）
     m_stack->addWidget(new AuditLogView(m_events, m_stack)); // 5 审计日志（M1 实装）
 
     lay->addWidget(navColumn);
@@ -293,8 +347,8 @@ void MainWindow::switchNav(int index) {
 }
 
 void MainWindow::openSettings() {
-    FirstRunWizard wizard(m_pm, this);
-    if (wizard.exec() == QDialog::Accepted) {
+    SettingsDialog dialog(m_pm, m_mail, this);
+    if (dialog.exec() == QDialog::Accepted) {
         refreshProviderCombo();
         refreshStatusLabels();
     }

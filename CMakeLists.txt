@@ -30,9 +30,12 @@ add_library(mider_core STATIC
     src/app/TaskQueueView.h    src/app/TaskQueueView.cpp
     src/app/MainWindow.h       src/app/MainWindow.cpp
     src/app/FirstRunWizard.h   src/app/FirstRunWizard.cpp
+    src/app/ProviderPanel.h    src/app/ProviderPanel.cpp
+    src/app/SettingsDialog.h   src/app/SettingsDialog.cpp
     src/core/AppContext.h      src/core/AppContext.cpp
     src/core/AgentLoop.h       src/core/AgentLoop.cpp
     src/core/Breaker.h
+    src/core/Router.h          src/core/Router.cpp
     src/core/EventBus.h        src/core/EventBus.cpp
     src/core/Scheduler.h       src/core/Scheduler.cpp
     src/llm/SseParser.h        src/llm/SseParser.cpp
@@ -43,6 +46,7 @@ add_library(mider_core STATIC
     src/db/Database.h          src/db/Database.cpp
     src/memory/MemoryManager.h src/memory/MemoryManager.cpp
     src/skills/SkillManager.h  src/skills/SkillManager.cpp
+    src/notify/EmailNotifier.h src/notify/EmailNotifier.cpp
     src/tools/ToolRegistry.h   src/tools/ToolRegistry.cpp
     src/tools/FileTools.h      src/tools/FileTools.cpp
     src/tools/CommandTools.h   src/tools/CommandTools.cpp
@@ -90,6 +94,7 @@ add_executable(mider_tests
     tests/test_command.cpp
     tests/test_memory.cpp
     tests/test_skill.cpp
+    tests/test_router.cpp
 )
 target_link_libraries(mider_tests PRIVATE mider_core Qt6::Network doctest::doctest)
 if(MSVC)

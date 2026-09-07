@@ -2,6 +2,7 @@
 // 三重熔断保险 + 权限门 + 事件审计；记忆/技能注入自 M2/M3 接入
 #pragma once
 #include "core/Breaker.h"
+#include "core/Router.h"
 #include "llm/ChatClient.h"
 #include "tools/PermissionGate.h"
 #include <QJsonArray>
@@ -97,6 +98,7 @@ private:
     QString buildSystemPrompt() const;
     QString buildFinalizePrompt(bool ok, const QString& summaryOrReason) const;
     QString classifyTarget(const QString& toolName, const QString& argsJson, PermissionGate::Kind* kind) const;
+    void handleTransportFailure(const QString& error, int httpCode); // M4：连续失败→故障转移
 
     Deps m_deps;
     PermissionGate m_gate; // 会话级权限门（含"总是允许"记忆）
@@ -111,6 +113,12 @@ private:
     bool m_finalizeOk = false;      // 本次收尾对应的任务结局
     QString m_finalizeSummary;      // 结局摘要（熔断原因或最终答复）
     int m_toolCallsThisTask = 0;    // 自沉淀判定：工具调用 ≥5 次且成功
+    // M4 路由与故障转移
+    Router::Tier m_tier = Router::Tier::Main;
+    int m_consecToolFailures = 0;   // 同一工具连续失败（升档判定）
+    bool m_tierEscalated = false;   // 本任务已升档一次
+    int m_transportFailures = 0;    // 连续传输级失败（故障转移判定）
+    bool m_failedOver = false;      // 本任务已切换供应商
 
     // 待授权工具调用（AwaitingPermission 状态下挂起）
     QString m_pendingCallId;

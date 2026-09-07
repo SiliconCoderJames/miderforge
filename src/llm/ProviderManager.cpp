@@ -7,6 +7,7 @@
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <curl/curl.h>
 #include <spdlog/spdlog.h>
 
 namespace miderforge {
@@ -184,6 +185,58 @@ QString ProviderManager::modelForTier(const ProviderConfig& cfg, const QString& 
     if (auto it = cfg.tiers.constFind(QStringLiteral("main")); it != cfg.tiers.constEnd())
         return it.value();
     return cfg.tiers.isEmpty() ? QString() : cfg.tiers.first();
+}
+
+bool ProviderManager::switchToFailover(const QString& reason) {
+    const ProviderConfig* backup = failoverProvider();
+    if (!backup || !backup->configured || backup->name == m_active)
+        return false;
+    if (auto lg = logutil::logger())
+        lg->warn("故障转移：{} → {}（{}）", m_active.toStdString(), backup->name.toStdString(),
+                 reason.toStdString());
+    m_active = backup->name;
+    m_failedOver = true;
+    m_health[m_active] = Health::Unknown;
+    const bool ok = writeJson();
+    emit providerChanged();
+    return ok;
+}
+
+void ProviderManager::setHealth(const QString& name, Health h) {
+    m_health[name] = h;
+    emit providerChanged();
+}
+
+bool ProviderManager::testConnection(const QString& name, QString* err) {
+    const ProviderConfig* cfg = provider(name);
+    if (!cfg) {
+        if (err) *err = QStringLiteral("供应商不存在");
+        return false;
+    }
+    // 决策: 同步 GET（10s 超时）；仅探测可达性（HTTP 状态 <500 即视为健康）
+    CURL* curl = curl_easy_init();
+    if (!curl) {
+        if (err) *err = QStringLiteral("curl 初始化失败");
+        return false;
+    }
+    curl_easy_setopt(curl, CURLOPT_URL, cfg->baseUrl.toUtf8().constData());
+    curl_easy_setopt(curl, CURLOPT_NOBODY, 0L);
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 10L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
+    curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
+    const CURLcode rc = curl_easy_perform(curl);
+    long code = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &code);
+    curl_easy_cleanup(curl);
+
+    const bool ok = (rc == CURLE_OK && code < 500 && code != 0);
+    setHealth(name, ok ? Health::Ok : Health::Fail);
+    if (!ok && err)
+        *err = rc != CURLE_OK ? QString::fromLatin1(curl_easy_strerror(rc))
+                              : QStringLiteral("HTTP %1").arg(code);
+    return ok;
 }
 
 } // namespace miderforge

@@ -6,6 +6,7 @@
 #include <QMainWindow>
 #include <QProgressBar>
 #include <QStackedWidget>
+#include <QSystemTrayIcon>
 #include <QTreeWidget>
 
 class QAction;
@@ -17,6 +18,7 @@ class AgentLoop;
 class AuditLogView;
 class ChatClient;
 class Database;
+class EmailNotifier;
 class EventBus;
 class MemoryManager;
 class ProviderManager;
@@ -27,7 +29,8 @@ class MainWindow : public QMainWindow {
     Q_OBJECT
 public:
     MainWindow(ProviderManager* pm, AgentLoop* loop, EventBus* events, Database* db,
-               MemoryManager* mem, SkillManager* skills, QWidget* parent = nullptr);
+               MemoryManager* mem, SkillManager* skills, EmailNotifier* mail,
+               QWidget* parent = nullptr);
 
 private slots:
     void switchNav(int index);
@@ -49,6 +52,8 @@ private:
     Database* m_db = nullptr;
     MemoryManager* m_mem = nullptr;
     SkillManager* m_skills = nullptr;
+    EmailNotifier* m_mail = nullptr;
+    QSystemTrayIcon* m_tray = nullptr;
 
     QTreeWidget* m_nav = nullptr;
     QStackedWidget* m_stack = nullptr;

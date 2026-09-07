@@ -44,12 +44,28 @@ public:
 
     const std::vector<ProviderConfig>& all() const { return m_providers; }
 
+    // ---- M4 故障转移与状态 ----
+    // 当前供应商连续 2 次 429/超时/5xx 后调用：切到 failover_backup 并写盘；成功返回 true
+    bool switchToFailover(const QString& reason);
+    bool failedOver() const { return m_failedOver; }
+    // 供应商连接状态（供应商视图状态灯：绿=健康/红=故障/灰=未配置）
+    enum class Health { Unknown, Ok, Fail };
+    Health health(const QString& name) const { return m_health.value(name, Health::Unknown); }
+    void setHealth(const QString& name, Health h);
+    // 测试连接：GET base_url（10s 超时），更新健康状态并返回结果
+    bool testConnection(const QString& name, QString* err = nullptr);
+
+signals:
+    void providerChanged(); // 供应商切换/健康状态变化（UI 状态灯）
+
 private:
     bool writeJson() const;
     ProviderConfig parseOne(const QJsonObject& obj) const;
 
     std::vector<ProviderConfig> m_providers;
     QString m_active;
+    bool m_failedOver = false;
+    QMap<QString, Health> m_health;
 };
 
 } // namespace miderforge
