@@ -83,7 +83,7 @@ bool Database::migrate() {
             INSERT INTO memories_fts(memories_fts, rowid, content) VALUES ('delete', old.id, old.content);
             INSERT INTO memories_fts(rowid, content) VALUES (new.id, new.content);
         END)",
-        // ---- skills ----
+        // ---- skills（决策: 规格基础上补 version 列，支撑同名 merge version+1） ----
         R"(CREATE TABLE IF NOT EXISTS skills (
             id INTEGER PRIMARY KEY,
             name TEXT NOT NULL UNIQUE,
@@ -93,6 +93,7 @@ bool Database::migrate() {
             usage_count INTEGER NOT NULL DEFAULT 0,
             success_count INTEGER NOT NULL DEFAULT 0,
             avg_rounds REAL,
+            version INTEGER NOT NULL DEFAULT 1,
             created_at INTEGER NOT NULL,
             updated_at INTEGER NOT NULL
         ))",

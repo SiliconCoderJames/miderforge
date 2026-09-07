@@ -26,6 +26,7 @@ add_library(mider_core STATIC
     src/app/SessionView.h      src/app/SessionView.cpp
     src/app/AuditLogView.h     src/app/AuditLogView.cpp
     src/app/MemoryView.h       src/app/MemoryView.cpp
+    src/app/SkillView.h        src/app/SkillView.cpp
     src/app/TaskQueueView.h    src/app/TaskQueueView.cpp
     src/app/MainWindow.h       src/app/MainWindow.cpp
     src/app/FirstRunWizard.h   src/app/FirstRunWizard.cpp
@@ -41,6 +42,7 @@ add_library(mider_core STATIC
     src/llm/ProviderManager.h  src/llm/ProviderManager.cpp
     src/db/Database.h          src/db/Database.cpp
     src/memory/MemoryManager.h src/memory/MemoryManager.cpp
+    src/skills/SkillManager.h  src/skills/SkillManager.cpp
     src/tools/ToolRegistry.h   src/tools/ToolRegistry.cpp
     src/tools/FileTools.h      src/tools/FileTools.cpp
     src/tools/CommandTools.h   src/tools/CommandTools.cpp
@@ -87,6 +89,7 @@ add_executable(mider_tests
     tests/test_breaker.cpp
     tests/test_command.cpp
     tests/test_memory.cpp
+    tests/test_skill.cpp
 )
 target_link_libraries(mider_tests PRIVATE mider_core Qt6::Network doctest::doctest)
 if(MSVC)

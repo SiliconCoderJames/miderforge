@@ -3,6 +3,7 @@
 #include "app/AuditLogView.h"
 #include "app/FirstRunWizard.h"
 #include "app/MemoryView.h"
+#include "app/SkillView.h"
 #include "app/SessionView.h"
 #include "app/TaskQueueView.h"
 #include "app/Theme.h"
@@ -28,8 +29,9 @@ constexpr int kNavSettingsIndex = 6;
 } // namespace
 
 MainWindow::MainWindow(ProviderManager* pm, AgentLoop* loop, EventBus* events, Database* db,
-                       MemoryManager* mem, QWidget* parent)
-    : QMainWindow(parent), m_pm(pm), m_loop(loop), m_events(events), m_db(db), m_mem(mem) {
+                       MemoryManager* mem, SkillManager* skills, QWidget* parent)
+    : QMainWindow(parent), m_pm(pm), m_loop(loop), m_events(events), m_db(db), m_mem(mem),
+      m_skills(skills) {
     setWindowTitle(QStringLiteral("Miderforge"));
     resize(1440, 900);
     setMinimumSize(1024, 680);
@@ -43,6 +45,18 @@ MainWindow::MainWindow(ProviderManager* pm, AgentLoop* loop, EventBus* events, D
 
     // 今日 token 统计联动
     connect(m_loop, &AgentLoop::tokensChanged, this, [this](long long) { refreshStatusLabels(); });
+
+    // 技能自沉淀确认（规格 7：弹确认；同名 merge 由 SkillManager 处理）
+    connect(m_loop, &AgentLoop::skillProposed, this,
+            [this](const QString& name, const QString& description, const QString& md) {
+                const auto ret = QMessageBox::question(
+                    this, QStringLiteral("沉淀新技能"),
+                    QStringLiteral("本次任务成功且工具调用≥5次，建议沉淀为技能：\n\n%1\n\n%2\n\n"
+                                   "保存后同类任务将自动在「可用技能」中出现。是否保存？")
+                        .arg(name, description));
+                if (ret == QMessageBox::Yes)
+                    m_loop->acceptSkillProposal(name, description, md);
+            });
 }
 
 void MainWindow::buildCentral() {
@@ -110,7 +124,7 @@ void MainWindow::buildCentral() {
     m_sessionView = new SessionView(m_loop, m_stack);
     m_stack->addWidget(m_sessionView); // 0 会话
     m_stack->addWidget(new TaskQueueView(m_db, m_loop, m_stack)); // 1 任务队列（M2 实装）
-    m_stack->addWidget(makePlaceholder(QStringLiteral("🧰 技能库面板将在 M3 里程碑实装")));
+    m_stack->addWidget(new SkillView(m_skills, m_stack)); // 2 技能库（M3 实装）
     m_stack->addWidget(new MemoryView(m_mem, m_stack)); // 3 记忆（M2 实装）
     m_stack->addWidget(makePlaceholder(QStringLiteral("🔌 供应商面板将在 M4 里程碑实装\n（当前可在工具栏切换供应商）")));
     m_stack->addWidget(new AuditLogView(m_events, m_stack)); // 5 审计日志（M1 实装）

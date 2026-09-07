@@ -5,6 +5,7 @@
 #include "db/Database.h"
 #include "llm/ProviderManager.h"
 #include "memory/MemoryManager.h"
+#include "skills/SkillManager.h"
 #include "tools/FileTools.h"
 #include "tools/PermissionGate.h"
 #include "tools/ToolRegistry.h"
@@ -54,6 +55,7 @@ void AgentLoop::start(const QString& goal, qint64 taskId) {
     }
     m_goal = goal;
     m_finalizing = false;
+    m_toolCallsThisTask = 0;
     m_history = QJsonArray();
     m_round = 0;
     m_running = true;
@@ -160,6 +162,17 @@ QString AgentLoop::buildSystemPrompt() const {
             prompt += QStringLiteral("\n===== 最近会话摘要 =====\n");
             for (const auto& s : summaries)
                 prompt += QStringLiteral("- %1\n").arg(s.content.left(200));
+        }
+    }
+
+    // 可用技能：name+description 常驻列表（渐进披露：全文经 read_skill 工具加载）
+    if (m_deps.skills) {
+        const auto skills = m_deps.skills->search(QString(), 20);
+        if (!skills.isEmpty()) {
+            prompt += QStringLiteral("\n===== 可用技能（详情用 read_skill 加载） =====\n");
+            for (const auto& s : skills)
+                if (s.status == QLatin1String("active"))
+                    prompt += QStringLiteral("- %1：%2\n").arg(s.name, s.description);
         }
     }
 
@@ -341,6 +354,7 @@ void AgentLoop::executePendingTool(int decision) {
 
 void AgentLoop::executeToolCall(const QString& callId, const QString& name, const QString& argumentsJson) {
     setState(State::Observing);
+    ++m_toolCallsThisTask;
     if (m_deps.events)
         m_deps.events->append(QStringLiteral("tool_call"), m_taskId,
                               QJsonObject{{"tool", name}, {"args", argumentsJson}});
@@ -367,6 +381,14 @@ void AgentLoop::executeToolCall(const QString& callId, const QString& name, cons
         m_breaker.recordToolSuccess();
     else
         m_breaker.recordToolFailure(resultText.left(200)); // 相同失败文本检测
+    // read_skill 加载 = 技能使用统计（规格 7）
+    if (ok && name == QLatin1String("read_skill") && m_deps.skills) {
+        const QJsonObject args = QJsonDocument::fromJson(argumentsJson.toUtf8()).object();
+        m_deps.skills->recordUsage(args.value("name").toString(), true, m_round);
+        if (m_deps.events)
+            m_deps.events->append(QStringLiteral("skill_used"), m_taskId,
+                                  QJsonObject{{"skill", args.value("name").toString()}});
+    }
     m_history.append(QJsonObject{
         {"role", "tool"},
         {"tool_call_id", callId},
@@ -433,23 +455,37 @@ QString AgentLoop::buildFinalizePrompt(bool ok, const QString& summaryOrReason) 
     QString currentL1;
     if (m_deps.mem)
         currentL1 = m_deps.mem->loadL1();
+
+    // 自沉淀判定（规格 7）：工具调用 ≥5 次且成功 → 请求生成 SKILL.md 草稿
+    QString skillSection;
+    if (ok && m_toolCallsThisTask >= 5 && m_deps.skills) {
+        skillSection = QStringLiteral(
+            "\n本次任务工具调用达 %1 次（≥5）且成功，符合技能沉淀条件。"
+            "请在 JSON 中增加字段：\n"
+            "  \"skill_name\": \"简短技能名（英文-kebab-case）\",\n"
+            "  \"skill_description\": \"一句话描述（将常驻 system prompt）\",\n"
+            "  \"skill_md\": \"完整 SKILL.md 正文（不含 frontmatter；含 适用场景/执行步骤/边界与坑/验收标准）\",\n"
+            "若认为无可沉淀的通用方案，则三个字段均为 null。\n")
+            .arg(m_toolCallsThisTask);
+    }
+
     return QStringLiteral(
         "你是 Miderforge 的记忆管理员。一次任务刚刚结束，请把它沉淀进记忆系统。\n"
         "任务结局：%1\n任务摘要/失败原因：%2\n使用轮数：%3\n累计 tokens：%4\n"
-        "\n当前 L1 核心记忆全文：\n%5\n\n"
+        "\n当前 L1 核心记忆全文：\n%5\n%6\n"
         "请只输出一个 JSON 对象（不要 markdown 围栏），字段：\n"
         "{\n"
         "  \"result_summary\": \"任务结果摘要（≤200字）\",\n"
         "  \"session_summary\": \"本次会话摘要，格式：目标-做法-结果-教训（≤200 token）\",\n"
-        "  \"l1_new\": \"合并提炼后的 L1 全文（保留旧有有效信息、删除过时项、融入本次新知；与当前 L1 结构一致）；若无需变动则为 null\",\n"
-        "  \"lesson\": %6\n"
-        "}\n"
-        "%6 处：任务失败或熔断时填 \"失败教训的一句话（importance 视为 0.8）\"，成功时填 null。")
+        "  \"l1_new\": \"合并提炼后的 L1 全文（保留旧有有效信息、删除过时项、融入本次新知）；若无需变动则为 null\",\n"
+        "  \"lesson\": \"失败教训一句话 或 null\"%7\n"
+        "}")
         .arg(ok ? QStringLiteral("成功") : QStringLiteral("失败/熔断"),
              summaryOrReason.left(500), QString::number(m_round),
              QString::number(m_breaker.tokens()),
              currentL1.isEmpty() ? QStringLiteral("（空）") : currentL1,
-             QStringLiteral("\"...\"或null"));
+             skillSection,
+             skillSection.isEmpty() ? QString() : QStringLiteral(",\n  ...skill 字段见上"));
 }
 
 void AgentLoop::onFinalizeFinished(const StreamResult& result) {
@@ -494,6 +530,16 @@ void AgentLoop::finalizeTaskWrites(const QJsonObject& parsed) {
         if (!ok && !lesson.isEmpty())
             m_deps.mem->addMemory(QStringLiteral("task_lesson"), lesson, 0.8);
     }
+    // ④ 技能自沉淀：交 UI 确认（或自动通过）后由 acceptSkillProposal 落盘
+    const QString skillName = parsed.value("skill_name").toString();
+    const QString skillDesc = parsed.value("skill_description").toString();
+    const QString skillMd = parsed.value("skill_md").toString();
+    if (ok && m_deps.skills && !skillName.isEmpty() && !skillMd.isEmpty()) {
+        if (m_deps.events)
+            m_deps.events->append(QStringLiteral("skill_gen"), m_taskId,
+                                  QJsonObject{{"skill", skillName}});
+        emit skillProposed(skillName, skillDesc, skillMd);
+    }
     // ⑥ 邮件+托盘通知在 M4 接入；此处先写审计
     if (m_deps.events)
         m_deps.events->append(QStringLiteral("task_status"), m_taskId,
@@ -504,6 +550,18 @@ void AgentLoop::finalizeTaskWrites(const QJsonObject& parsed) {
     m_running = false;
     setState(ok ? State::Done : State::Halted);
     emit loopFinished(ok, resultSummary);
+}
+
+void AgentLoop::acceptSkillProposal(const QString& name, const QString& description, const QString& md) {
+    if (!m_deps.skills)
+        return;
+    QString err;
+    if (m_deps.skills->writeSkill(name, description, md, &err)) {
+        if (auto lg = logutil::logger())
+            lg->info("技能已沉淀：{}", name.toStdString());
+    } else if (auto lg = logutil::logger()) {
+        lg->error("技能落盘失败：{}", err.toStdString());
+    }
 }
 
 void AgentLoop::persistTaskEnd(bool ok, const QString& resultSummary, const QString& failureReason) {

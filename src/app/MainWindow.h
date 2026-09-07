@@ -21,12 +21,13 @@ class EventBus;
 class MemoryManager;
 class ProviderManager;
 class SessionView;
+class SkillManager;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
 public:
     MainWindow(ProviderManager* pm, AgentLoop* loop, EventBus* events, Database* db,
-               MemoryManager* mem, QWidget* parent = nullptr);
+               MemoryManager* mem, SkillManager* skills, QWidget* parent = nullptr);
 
 private slots:
     void switchNav(int index);
@@ -47,6 +48,7 @@ private:
     EventBus* m_events = nullptr;
     Database* m_db = nullptr;
     MemoryManager* m_mem = nullptr;
+    SkillManager* m_skills = nullptr;
 
     QTreeWidget* m_nav = nullptr;
     QStackedWidget* m_stack = nullptr;

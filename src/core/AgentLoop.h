@@ -14,6 +14,7 @@ class ChatClient;
 class Database;
 class EventBus;
 class MemoryManager;
+class SkillManager;
 class ToolRegistry;
 class ProviderManager;
 
@@ -41,6 +42,7 @@ public:
         EventBus* events = nullptr;
         Database* db = nullptr;         // M2：tasks 表持久化（可空）
         MemoryManager* mem = nullptr;   // M2：记忆注入与收尾提炼（可空）
+        SkillManager* skills = nullptr; // M3：技能注入与自沉淀（可空）
     };
     AgentLoop(Deps deps, QObject* parent = nullptr);
 
@@ -52,6 +54,8 @@ public:
 
     // 权限卡片回调：decision 0=允许一次 1=本会话总是允许 2=拒绝
     void resumePermission(const QString& callId, int decision);
+    // 技能确认回调：保存提案（同名 merge version+1）
+    void acceptSkillProposal(const QString& name, const QString& description, const QString& md);
 
     static QString stateName(State s);
 
@@ -73,6 +77,8 @@ signals:
                              const QString& target);
     void loopFinished(bool ok, const QString& summary);
     void loopFailed(const QString& error);
+    // 自沉淀提案（工具调用≥5 且成功）：UI 弹确认（或按设置自动通过）后调 acceptSkillProposal
+    void skillProposed(const QString& name, const QString& description, const QString& md);
 
 private slots:
     void onStreamFinished(const miderforge::StreamResult& result);
@@ -104,6 +110,7 @@ private:
     bool m_finalizing = false;      // 收尾 LLM 调用进行中
     bool m_finalizeOk = false;      // 本次收尾对应的任务结局
     QString m_finalizeSummary;      // 结局摘要（熔断原因或最终答复）
+    int m_toolCallsThisTask = 0;    // 自沉淀判定：工具调用 ≥5 次且成功
 
     // 待授权工具调用（AwaitingPermission 状态下挂起）
     QString m_pendingCallId;

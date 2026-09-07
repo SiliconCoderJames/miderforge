@@ -10,6 +10,7 @@
 #include "llm/ChatClient.h"
 #include "llm/ProviderManager.h"
 #include "memory/MemoryManager.h"
+#include "skills/SkillManager.h"
 #include "tools/CommandTools.h"
 #include "tools/ExtraTools.h"
 #include "tools/FileTools.h"
@@ -85,12 +86,14 @@ int main(int argc, char* argv[]) {
     MemoryManager memory(&db, appdirs::file(QStringLiteral("memory/core.md")));
     if (memory.loadL1().isEmpty())
         memory.saveL1(QStringLiteral("# 用户画像\n\n# 编码偏好\n\n# 禁区\n\n# 活跃项目状态\n"));
+    SkillManager skills(&db, appdirs::file(QStringLiteral("skills")));
+    skills.ensureSeedSkill(); // 规格交付物：首技能种子 cpp-cmake-qt-build
 
     ChatClient chat;
-    AgentLoop loop({&chat, &tools, &providers, &events, &db, &memory});
+    AgentLoop loop({&chat, &tools, &providers, &events, &db, &memory, &skills});
     Scheduler scheduler(&db, &loop);
 
-    MainWindow win(&providers, &loop, &events, &db, &memory);
+    MainWindow win(&providers, &loop, &events, &db, &memory, &skills);
     win.show();
     const int rc = app.exec();
 
