@@ -48,9 +48,13 @@ MainWindow::MainWindow(ProviderManager* pm, AgentLoop* loop, EventBus* events, D
     buildStatusBar();
     refreshProviderCombo();
     refreshStatusLabels();
+    refreshL1Footer(); // 导航底栏 L1 占用用真实值，避免启动后恒显 0
 
     // 今日 token 统计联动
     connect(m_loop, &AgentLoop::tokensChanged, this, [this](long long) { refreshStatusLabels(); });
+
+    // 任务收尾后记忆/摘要可能已更新 → 同步导航底栏 L1 占用
+    connect(m_loop, &AgentLoop::loopFinished, this, [this](bool, const QString&) { refreshL1Footer(); });
 
     // 技能自沉淀确认（规格 7：弹确认；同名 merge 由 SkillManager 处理）
     connect(m_loop, &AgentLoop::skillProposed, this,
@@ -336,6 +340,22 @@ void MainWindow::refreshStatusLabels() {
     m_statusMode->setText(
         QStringLiteral("模式: %1").arg(permissionModeName(AppContext::instance().permissionMode)));
     m_statusQueue->setText(QStringLiteral("队列: 0"));
+}
+
+void MainWindow::refreshL1Footer() {
+    if (!m_mem)
+        return;
+    const qint64 used = m_mem->l1Tokens();
+    m_l1BarLabel->setText(QStringLiteral("L1 记忆：%1 / 4000 tokens").arg(used));
+    m_l1Bar->setValue(static_cast<int>(qBound<qint64>(qint64(0), used, qint64(4000))));
+    // >80% 变黄（规格：L1 接近上限预警）
+    m_l1Bar->setStyleSheet(used > 4000 * 8 / 10
+                               ? QStringLiteral("QProgressBar{background-color:%1;border:none;border-radius:3px;}"
+                                                "QProgressBar::chunk{background-color:%2;border-radius:3px;}")
+                                     .arg(theme::colors::panel.name(), theme::colors::warn.name())
+                               : QStringLiteral("QProgressBar{background-color:%1;border:none;border-radius:3px;}"
+                                                "QProgressBar::chunk{background-color:%2;border-radius:3px;}")
+                                     .arg(theme::colors::panel.name(), theme::colors::accent.name()));
 }
 
 void MainWindow::switchNav(int index) {

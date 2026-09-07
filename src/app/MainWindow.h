@@ -44,6 +44,7 @@ private:
     void buildStatusBar();
     void refreshProviderCombo();
     void refreshStatusLabels();
+    void refreshL1Footer();
     QWidget* makePlaceholder(const QString& text) const;
 
     ProviderManager* m_pm = nullptr;

@@ -5,8 +5,10 @@
 #include <QDateTime>
 #include <QDateTimeEdit>
 #include <QCheckBox>
+#include <QColor>
 #include <QDialog>
 #include <QDialogButtonBox>
+#include <QHash>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QJsonDocument>
@@ -38,13 +40,33 @@ void TasksModel::reload() {
 }
 
 QVariant TasksModel::data(const QModelIndex& idx, int role) const {
-    if (!idx.isValid() || role != Qt::DisplayRole)
+    if (!idx.isValid())
         return {};
     const Row& r = m_rows[idx.row()];
+    // 状态列中文化 + 语义色（DisplayRole 文案 / ForegroundRole 颜色）
+    if (idx.column() == 2 && role == Qt::DisplayRole) {
+        static const QHash<QString, QString> names = {
+            {QStringLiteral("queued"), QStringLiteral("排队中")},
+            {QStringLiteral("running"), QStringLiteral("运行中")},
+            {QStringLiteral("succeeded"), QStringLiteral("成功")},
+            {QStringLiteral("failed"), QStringLiteral("失败")},
+            {QStringLiteral("cancelled"), QStringLiteral("已取消")}};
+        return names.value(r.status, r.status);
+    }
+    if (idx.column() == 2 && role == Qt::ForegroundRole) {
+        static const QHash<QString, QColor> colors = {
+            {QStringLiteral("queued"), QColor(0x9d, 0xa2, 0xa6)},
+            {QStringLiteral("running"), QColor(0x4a, 0x8c, 0xff)},
+            {QStringLiteral("succeeded"), QColor(0x57, 0xab, 0x5a)},
+            {QStringLiteral("failed"), QColor(0xe0, 0x6c, 0x60)},
+            {QStringLiteral("cancelled"), QColor(0x9d, 0xa2, 0xa6)}};
+        return colors.value(r.status, QColor(0xdc, 0xdf, 0xe4));
+    }
+    if (role != Qt::DisplayRole)
+        return {};
     switch (idx.column()) {
     case 0: return r.id;
     case 1: return r.goal.length() > 40 ? r.goal.left(40) + QStringLiteral("…") : r.goal;
-    case 2: return r.status;
     case 3: return r.rounds;
     case 4: return r.tokens;
     case 5: return QDateTime::fromSecsSinceEpoch(r.createdAt).toString(QStringLiteral("MM-dd hh:mm"));
