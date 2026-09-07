@@ -125,10 +125,12 @@ void MainWindow::buildCentral() {
     m_nav->setHeaderHidden(true);
     m_nav->setRootIsDecorated(false);
     m_nav->setStyleSheet(QStringLiteral(
-        "QTreeWidget{background-color:%1;border:none;font-size:10pt;}"
-        "QTreeWidget::item{height:34px;}"
-        "QTreeWidget::item:selected{background-color:%2;color:white;}")
-                             .arg(theme::colors::window.name(), theme::colors::accent.name()));
+        "QTreeWidget{background-color:%1;border:none;font-size:10pt;outline:none;}"
+        "QTreeWidget::item{height:38px;border-radius:8px;margin:2px 10px;color:%3;}"
+        "QTreeWidget::item:hover{background-color:%4;}"
+        "QTreeWidget::item:selected{background-color:%2;color:white;font-weight:bold;}")
+                             .arg(theme::colors::window.name(), theme::colors::accent.name(),
+                                  theme::colors::textDim.name(), theme::colors::panel.name()));
     const QStringList navItems = {
         QStringLiteral("💬  会话"),
         QStringLiteral("📋  任务队列"),

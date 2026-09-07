@@ -126,6 +126,8 @@ QWidget* SessionView::buildInputArea() {
     });
 
     m_sendBtn = new QPushButton(QStringLiteral("发送"), frame);
+    m_sendBtn->setObjectName(QStringLiteral("primaryBtn")); // 全局 QSS 强调色主按钮
+    m_sendBtn->setFixedHeight(28);
     m_stopBtn = new QPushButton(QStringLiteral("停止"), frame);
     connect(m_sendBtn, &QPushButton::clicked, this, &SessionView::onSend);
     connect(m_stopBtn, &QPushButton::clicked, this, &SessionView::onStop);

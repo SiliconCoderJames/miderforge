@@ -21,6 +21,8 @@ inline const QColor codeBg  {0x23, 0x25, 0x28}; // 代码块底
 } // namespace colors
 
 void apply(QApplication& app);
+// 全局 QSS：输入框/按钮/列表/表格/Tab/滚动条/菜单统一深色观感
+QString globalStyleSheet();
 QFont uiFont();   // 微软雅黑 UI 9pt
 QFont monoFont(); // Consolas（代码/JSON/日志）
 

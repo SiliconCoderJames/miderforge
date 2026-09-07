@@ -47,6 +47,23 @@ void EventBus::append(const QString& type, qint64 taskId, const QJsonObject& pay
     emit eventAppended(ev);
 }
 
+void EventBus::setDatabase(Database* db) {
+    m_db = db;
+    if (!db)
+        return;
+    // 启动时从 events 表回填内存环形，保证审计视图跨会话可见（append-only 全量留痕）
+    for (const auto& row : db->query(QStringLiteral(
+             "SELECT ts, type, task_id, payload_json FROM events ORDER BY id DESC LIMIT ?"),
+             {kMaxInMemory})) {
+        Event ev;
+        ev.ts = row.value("ts").toDouble();
+        ev.type = row.value("type").toString();
+        ev.taskId = row.value("task_id").toLongLong();
+        ev.payload = QJsonDocument::fromJson(row.value("payload_json").toString().toUtf8()).object();
+        m_recent.push_front(ev);
+    }
+}
+
 QVector<EventBus::Event> EventBus::loadAll(int maxKeep) const {
     QVector<Event> out;
     QFile f(m_path);

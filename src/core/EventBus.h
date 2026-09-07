@@ -25,8 +25,9 @@ public:
 
     explicit EventBus(const QString& jsonlPath, QObject* parent = nullptr);
 
-    // M2：双写 SQLite events 表（append-only）；未设置则只写 JSONL
-    void setDatabase(Database* db) { m_db = db; }
+    // M2：双写 SQLite events 表（append-only）；未设置则只写 JSONL。
+    // 设置时会从库回填内存环形（审计视图跨会话可见）
+    void setDatabase(Database* db);
 
     // 追加一条事件：写 JSONL（+数据库）+ 发 eventAppended；失败不致命（日志降级）
     void append(const QString& type, qint64 taskId, const QJsonObject& payload);

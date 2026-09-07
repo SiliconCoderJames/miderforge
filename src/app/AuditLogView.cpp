@@ -52,11 +52,7 @@ AuditLogView::AuditLogView(EventBus* events, QWidget* parent) : QWidget(parent),
     m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_table->setAlternatingRowColors(true);
-    m_table->setStyleSheet(QStringLiteral(
-        "QTableWidget{background-color:%1;color:%2;border:1px solid #35383d;gridline-color:#35383d;}"
-        "QHeaderView::section{background-color:%3;color:%4;border:none;padding:4px;}")
-                               .arg(theme::colors::panel.name(), theme::colors::text.name(),
-                                    theme::colors::window.name(), theme::colors::textDim.name()));
+    // 表格观感走 Theme::globalStyleSheet() 统一深色样式
     lay->addWidget(m_table, 1);
 
     connect(m_events, &EventBus::eventAppended, this, [this](const EventBus::Event& ev) {
