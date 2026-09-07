@@ -12,6 +12,7 @@
 [![Platform](https://img.shields.io/badge/Platform-Windows%2010%2B-0078D6.svg?logo=windows&logoColor=white)](https://github.com)
 [![Build](https://img.shields.io/badge/CMake-3.24%2B-e06c60.svg?logo=cmake&logoColor=white)](#构建)
 [![CI](https://img.shields.io/badge/CI-pending-lightgrey.svg)](#)
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-%E2%98%95-FFDD00.svg?logo=buymeacoffee&logoColor=black)](https://www.buymeacoffee.com/your-account)
 
 </div>
 
@@ -135,6 +136,37 @@ Miderforge/
 2. 为纯逻辑改动补充 doctest 单测；
 3. 运行密钥自检：`git ls-files | findstr /i "key secret token env pass"`，确认无敏感值；
 4. 遵守 [docs/CONFIG.md](docs/CONFIG.md) 开头的密钥卫生红线。
+
+## 💬 联系与反馈
+
+| 渠道 | 链接 |
+|---|---|
+| 🐛 Bug 反馈 / 功能建议 | [Issues](https://github.com/your-username/miderforge/issues) |
+| 💡 讨论交流 | [Discussions](https://github.com/your-username/miderforge/discussions) |
+| 📧 邮件（合作/安全漏洞） | your-email@example.com |
+
+> 安全漏洞请勿直接公开 Issue，优先通过邮件私下披露，修复后再发布。
+
+## ☕ 赞助支持
+
+如果 Miderforge 帮你省下了时间，欢迎请作者喝杯咖啡 ☕——所有赞助将用于 API 调用测试经费与后续开发。
+
+<a href="https://www.buymeacoffee.com/your-account" target="_blank">
+  <img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" height="48">
+</a>
+
+**其他方式：**
+
+| 方式 | 说明 |
+|---|---|
+| GitHub Sponsors | 仓库右上角 **♥ Sponsor** 按钮（配置见 [.github/FUNDING.yml](.github/FUNDING.yml)） |
+| 微信 / 支付宝收钱码 | 占位：将收款二维码图片放入 `docs/assets/` 后在此展示 |
+
+<!--
+  发布前替换清单（作者自用，渲染不可见）：
+  1. 所有 your-account / your-username / your-email@example.com 占位符
+  2. docs/assets/ 放入收款码图片后取消上方表格占位说明
+-->
 
 ## 📄 License
 

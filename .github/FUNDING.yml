@@ -1,0 +1,8 @@
+# GitHub Sponsors 配置（仓库页面的「Sponsor this project」按钮）。
+# 将 your-account 替换为你的真实账号后，按钮会自动出现在仓库首页。
+# 支持的平台见 https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/displaying-a-sponsor-button-in-your-repository
+
+buymeacoffee: your-account
+# github: [your-username]
+# ko-fi: your-account
+# patreon: your-username
