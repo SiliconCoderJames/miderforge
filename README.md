@@ -141,9 +141,9 @@ Miderforge/
 
 | 渠道 | 链接 |
 |---|---|
-| 🐛 Bug 反馈 / 功能建议 | [Issues](https://github.com/your-username/miderforge/issues) |
-| 💡 讨论交流 | [Discussions](https://github.com/your-username/miderforge/discussions) |
-| 📧 邮件（合作/安全漏洞） | your-email@example.com |
+| 🐛 Bug 反馈 / 功能建议 | [Issues](https://github.com/SiliconCoderJames/miderforge/issues) |
+| 💡 讨论交流 | [Discussions](https://github.com/SiliconCoderJames/miderforge/discussions) |
+| 📧 邮件（合作/安全漏洞） | 13371891127@139.com |
 
 > 安全漏洞请勿直接公开 Issue，优先通过邮件私下披露，修复后再发布。
 
@@ -164,7 +164,8 @@ Miderforge/
 
 <!--
   发布前替换清单（作者自用，渲染不可见）：
-  1. 所有 your-account / your-username / your-email@example.com 占位符
+  1. Buy Me a Coffee 账号（两处 buymeacoffee.com/your-account：顶部徽章 + 赞助按钮，
+     以及 .github/FUNDING.yml 的 buymeacoffee 条目）
   2. docs/assets/ 放入收款码图片后取消上方表格占位说明
 -->
 
