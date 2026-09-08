@@ -65,6 +65,9 @@ void SkillView::reload() {
 void SkillView::onSearchChanged(const QString& text) {
     m_records = m_skills->search(text, 50);
     m_list->clear();
+    m_current.clear();
+    m_editBtn->setEnabled(false); // 未选中技能时操作按钮不可点
+    m_deprecateBtn->setEnabled(false);
     for (const auto& s : m_records) {
         const int rate = s.usageCount > 0 ? s.successCount * 100 / s.usageCount : 0;
         QString tag;
@@ -84,6 +87,8 @@ void SkillView::onSelected() {
         return;
     const auto& s = m_records[row];
     m_current = s.name;
+    m_editBtn->setEnabled(true);
+    m_deprecateBtn->setEnabled(s.status != QLatin1String("deprecated")); // 已废弃技能不再提供废弃操作
     m_meta->setText(QStringLiteral("%1 · %2 · 使用 %3 次/成功 %4 次 · 平均 %5 轮")
                         .arg(s.name, s.description)
                         .arg(s.usageCount)

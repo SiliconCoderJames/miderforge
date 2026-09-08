@@ -55,13 +55,15 @@ void ProviderPanel::rebuild() {
             ++row;
         }
     }
+    // 末行下方给弹性拉伸：卡片保持自然高度、钉在顶部，不随视口拉高
+    m_grid->setRowStretch(m_grid->rowCount(), 1);
 }
 
 QWidget* ProviderPanel::makeCard(const ProviderConfig& cfg) {
     auto* card = new QFrame(this);
     card->setObjectName(QStringLiteral("providerCard_%1").arg(cfg.name));
-    card->setMinimumSize(320, 150);
-    card->setMaximumWidth(420);
+    card->setMinimumSize(320, 170);
+    card->setMaximumWidth(520);
 
     auto* lay = new QVBoxLayout(card);
     lay->setContentsMargins(12, 10, 12, 10);
@@ -98,6 +100,7 @@ QWidget* ProviderPanel::makeCard(const ProviderConfig& cfg) {
 
     // 实时延迟/费用：v1 由测试连接与使用事件回填（decision: 显示占位“—”不建假数据）
     lay->addWidget(new QLabel(QStringLiteral("延迟：— · 今日 tokens：— · 估算费用：—"), card));
+    lay->addStretch(1); // 信息聚拢在上，操作钉在卡片底部，避免内容被拉伸散开
 
     // 测试连接结果回显行（默认隐藏，点击后显示，避免静态冗余）
     auto* testResult = new QLabel(card);

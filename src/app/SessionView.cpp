@@ -129,19 +129,25 @@ QWidget* SessionView::buildInputArea() {
     m_sendBtn->setObjectName(QStringLiteral("primaryBtn")); // 全局 QSS 强调色主按钮
     m_sendBtn->setFixedHeight(28);
     m_stopBtn = new QPushButton(QStringLiteral("停止"), frame);
+    m_stopBtn->setFixedHeight(28);
+    m_stopBtn->setEnabled(false);
     connect(m_sendBtn, &QPushButton::clicked, this, &SessionView::onSend);
     connect(m_stopBtn, &QPushButton::clicked, this, &SessionView::onStop);
-    m_stopBtn->setEnabled(false);
 
     auto* sendShortcut = new QShortcut(QKeySequence(QStringLiteral("Ctrl+Return")), m_input);
     connect(sendShortcut, &QShortcut::activated, this, &SessionView::onSend);
 
     lay->addWidget(m_input, 1);
     auto* rightLay = new QVBoxLayout();
+    rightLay->setSpacing(6);
+    m_permCombo->setFixedHeight(28);
     rightLay->addWidget(m_permCombo);
-    rightLay->addWidget(m_sendBtn);
+    auto* btnRow = new QHBoxLayout();
+    btnRow->setSpacing(6);
+    btnRow->addWidget(m_sendBtn, 1);
+    btnRow->addWidget(m_stopBtn, 1);
+    rightLay->addLayout(btnRow);
     lay->addLayout(rightLay);
-    lay->addWidget(m_stopBtn);
     return frame;
 }
 

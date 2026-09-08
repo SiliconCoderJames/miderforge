@@ -87,6 +87,8 @@ void MemoryView::reload() {
                            .arg(m_mem->l1Tokens()));
     m_currentId = -1;
     m_detail->clear();
+    m_saveBtn->setEnabled(false); // 未选中记录时操作按钮不可点
+    m_archiveBtn->setEnabled(false);
     m_metaLabel->setText(QStringLiteral("共 %1 条记忆").arg(m_records.size()));
 }
 
@@ -119,6 +121,8 @@ void MemoryView::onSelected() {
     const auto& r = m_records[row];
     m_currentId = r.id;
     m_showingL1 = false;
+    m_saveBtn->setEnabled(true);
+    m_archiveBtn->setEnabled(true);
     m_metaLabel->setText(QStringLiteral("id=%1 · 类型=%2 · 重要度=%3 · 访问 %4 次")
                              .arg(r.id).arg(r.type).arg(r.importance).arg(r.accessCount));
     m_detail->setPlainText(r.content);
