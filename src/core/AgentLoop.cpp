@@ -64,6 +64,7 @@ QString AgentLoop::stateName(State s) {
     case State::Observing: return QStringLiteral("观察中");
     case State::AwaitingPermission: return QStringLiteral("等待确认");
     case State::Reflecting: return QStringLiteral("反思中");
+    case State::Paused: return QStringLiteral("已暂停");
     case State::Done: return QStringLiteral("已完成");
     case State::Failed: return QStringLiteral("失败");
     case State::Halted: return QStringLiteral("已熔断");
@@ -107,6 +108,8 @@ void AgentLoop::start(const QString& goal, qint64 taskId) {
     m_lastPromptTokens = 0;
     m_toolCancelSeen = false;
     m_terminalStatus.clear();
+    m_pauseRequested.store(false);
+    m_paused = false;
     if (m_deps.tools)
         m_deps.tools->consumeToolCancel(); // 防御：清掉上一任务可能残留的取消标志
     m_running = true;
@@ -154,11 +157,50 @@ void AgentLoop::cancel() {
         emit loopFinished(false, QStringLiteral("已手动停止"));
         return;
     }
+    // M5 P2：挂起中的取消 = 直接判停（没有在跑的工具/流可等）
+    if (m_paused) {
+        m_pauseRequested.store(false);
+        stopForUserCancel();
+        return;
+    }
     // M5 P3：工具执行中取消原来到不了工具层（此路径上 chat 并不在跑，cancel 是空操作）——
     // 先请求在跑工具中止，工具批收尾时检测到取消即整体判停
     if (m_deps.tools)
         m_deps.tools->requestToolCancel();
     m_deps.chat->cancel();
+}
+
+void AgentLoop::pause() {
+    if (!m_running || m_paused)
+        return;
+    m_pauseRequested.store(true);
+    if (auto lg = logutil::logger())
+        lg->info("任务 #{} 收到暂停请求，将在轮边界挂起", m_taskId);
+}
+
+void AgentLoop::resume() {
+    if (!m_paused || !m_running)
+        return;
+    m_paused = false;
+    if (m_deps.db)
+        m_deps.db->execute(QStringLiteral("UPDATE tasks SET status='running' WHERE id=?"), {m_taskId});
+    if (m_deps.events)
+        m_deps.events->append(QStringLiteral("task_status"), m_taskId,
+                              QJsonObject{{"status", "resumed"}});
+    emit taskResumed();
+    setState(State::Planning);
+    runRound();
+}
+
+void AgentLoop::enterPaused() {
+    m_paused = true;
+    setState(State::Paused);
+    if (m_deps.db)
+        m_deps.db->execute(QStringLiteral("UPDATE tasks SET status='paused' WHERE id=?"), {m_taskId});
+    if (m_deps.events)
+        m_deps.events->append(QStringLiteral("task_status"), m_taskId,
+                              QJsonObject{{"status", "paused"}});
+    emit taskPaused();
 }
 
 void AgentLoop::runRound() {
@@ -511,6 +553,12 @@ void AgentLoop::finishToolBatch() {
     // M5 P3：用户取消优先于一切熔断——整体判停为 cancelled
     if (m_toolCancelSeen) {
         stopForUserCancel();
+        return;
+    }
+
+    // M5 P2：暂停请求在轮边界安全点生效（不打断在跑的工具/流式）
+    if (m_pauseRequested.exchange(false)) {
+        enterPaused();
         return;
     }
 

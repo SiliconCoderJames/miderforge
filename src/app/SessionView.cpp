@@ -133,6 +133,18 @@ QWidget* SessionView::buildInputArea() {
     m_stopBtn->setEnabled(false);
     connect(m_sendBtn, &QPushButton::clicked, this, &SessionView::onSend);
     connect(m_stopBtn, &QPushButton::clicked, this, &SessionView::onStop);
+    m_pauseBtn = new QPushButton(QStringLiteral("暂停"), frame);
+    m_pauseBtn->setFixedHeight(28);
+    m_pauseBtn->setEnabled(false);
+    connect(m_pauseBtn, &QPushButton::clicked, this, &SessionView::onPauseToggled);
+    // M5 P2：挂起/继续状态驱动按钮文案
+    connect(m_loop, &AgentLoop::taskPaused, this, [this] {
+        m_pauseBtn->setText(QStringLiteral("继续"));
+        setStateLabel(QStringLiteral("已暂停"), theme::colors::warn);
+    });
+    connect(m_loop, &AgentLoop::taskResumed, this, [this] {
+        m_pauseBtn->setText(QStringLiteral("暂停"));
+    });
 
     auto* sendShortcut = new QShortcut(QKeySequence(QStringLiteral("Ctrl+Return")), m_input);
     connect(sendShortcut, &QShortcut::activated, this, &SessionView::onSend);
@@ -146,6 +158,7 @@ QWidget* SessionView::buildInputArea() {
     btnRow->setSpacing(6);
     btnRow->addWidget(m_sendBtn, 1);
     btnRow->addWidget(m_stopBtn, 1);
+    btnRow->addWidget(m_pauseBtn, 1);
     rightLay->addLayout(btnRow);
     lay->addLayout(rightLay);
     return frame;
@@ -213,12 +226,23 @@ void SessionView::startGoal(const QString& goal) {
     m_elapsedLabel->setText(QStringLiteral("已用时 00:00"));
     m_sendBtn->setEnabled(false);
     m_stopBtn->setEnabled(true);
+    m_pauseBtn->setEnabled(true);
+    m_pauseBtn->setText(QStringLiteral("暂停"));
     setStateLabel(QStringLiteral("规划中"), theme::colors::accent);
     m_loop->start(goal);
 }
 
 void SessionView::onStop() {
     m_loop->cancel();
+}
+
+void SessionView::onPauseToggled() {
+    if (!m_loop)
+        return;
+    if (m_loop->isPaused())
+        m_loop->resume();
+    else
+        m_loop->pause();
 }
 
 void SessionView::onTaskStarted(const QString& goal) {
@@ -328,6 +352,8 @@ void SessionView::onLoopFinished(bool ok, const QString& summary) {
     m_elapsedTimer.stop();
     m_sendBtn->setEnabled(true);
     m_stopBtn->setEnabled(false);
+    m_pauseBtn->setEnabled(false);
+    m_pauseBtn->setText(QStringLiteral("暂停"));
     setStateLabel(ok ? QStringLiteral("已完成") : QStringLiteral("已熔断"),
                   ok ? theme::colors::success : theme::colors::error);
     popQueueIfIdle();
@@ -337,6 +363,8 @@ void SessionView::onLoopFailed(const QString& error) {
     m_elapsedTimer.stop();
     m_sendBtn->setEnabled(true);
     m_stopBtn->setEnabled(false);
+    m_pauseBtn->setEnabled(false);
+    m_pauseBtn->setText(QStringLiteral("暂停"));
     setStateLabel(QStringLiteral("失败"), theme::colors::error);
     auto* note = new QLabel(QStringLiteral("✖ %1").arg(error), m_feedHost);
     note->setStyleSheet(QStringLiteral("color:%1;").arg(theme::colors::error.name()));

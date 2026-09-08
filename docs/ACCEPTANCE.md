@@ -70,6 +70,6 @@
 
 - [x] 终态语义统一：tasks 表五态落库（succeeded/failed/halted/cancelled/paused），取消经终态覆写不再误记为 failed；UI 语义色补 halted/paused (2026-09-08)
 - [x] P3 取消令牌贯穿工具层：ToolRegistry 原子令牌 → run_command 入口快检 + 150ms 轮询 kill / http_fetch 进度回调中止 → 工具批收尾消费判停（单测覆盖令牌语义与入口快检）(2026-09-08)
-- [ ] P2 暂停/恢复：轮边界挂起状态机，m_history 保持可续
+- [x] P2 暂停/恢复：轮边界安全点挂起（不打断在跑工具/流式），m_history 保持可续；挂起期间任务行 status='paused'，取消可直接判停，启动恢复将遗留 paused 行重新入队（代码审查验证，GUI 交互待人工）(2026-09-08)
 - [ ] P0 接入 OS 会话信号（WM_QUERYENDSESSION）：存检查点后有界退出
 - [ ] checkpoint 续跑：崩溃恢复从"重新入队重跑"升级为"断点续跑"

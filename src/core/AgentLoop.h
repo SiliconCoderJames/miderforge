@@ -8,6 +8,7 @@
 #include <QJsonArray>
 #include <QObject>
 #include <QString>
+#include <atomic>
 
 namespace miderforge {
 
@@ -30,6 +31,7 @@ public:
         Observing,          // 观察中（结果回填）
         AwaitingPermission, // 等待用户授权
         Reflecting,         // 反思中（收尾提炼：摘要/L1/教训）
+        Paused,             // M5 P2：已暂停（轮边界挂起，可继续）
         Done,               // 已完成
         Failed,             // 失败
         Halted              // 已熔断
@@ -52,6 +54,13 @@ public:
     bool isRunning() const { return m_running; }
     long long totalTokens() const { return m_breaker.tokens(); }
     qint64 currentTaskId() const { return m_taskId; }
+
+    // ---- M5 P2 暂停/恢复：轮边界安全点挂起（类人协作：打断→纠正→继续）----
+    // pause() 只置请求标志，在下一个工具批收尾边界生效（不打断在跑的工具/流式）；
+    // resume() 从挂起状态继续下一轮。挂起期间任务行 status='paused'，取消仍可直接判停
+    void pause();
+    void resume();
+    bool isPaused() const { return m_paused; }
 
     // 权限卡片回调：decision 0=允许一次 1=本会话总是允许 2=拒绝
     void resumePermission(const QString& callId, int decision);
@@ -78,6 +87,8 @@ signals:
                              const QString& target);
     void loopFinished(bool ok, const QString& summary);
     void loopFailed(const QString& error);
+    void taskPaused();  // M5 P2：任务在轮边界挂起
+    void taskResumed(); // M5 P2：任务从挂起继续
     // 自沉淀提案（工具调用≥5 且成功）：UI 弹确认（或按设置自动通过）后调 acceptSkillProposal
     void skillProposed(const QString& name, const QString& description, const QString& md);
 
@@ -87,6 +98,7 @@ private slots:
 
 private:
     void setState(State s);
+    void enterPaused(); // M5 P2：在轮边界进入挂起（持久化 paused + 通知 UI）
     void runRound();
     void finishToolBatch(); // 工具批执行完：熔断检查 → 下一轮或继续
     void executePendingTool(int decision);
@@ -128,6 +140,8 @@ private:
     qint64 m_lastPromptTokens = 0;  // 上一轮流prompt用量（增量记账：只收新增输入，避免重发 history 造成 O(N²) 口径）
     bool m_toolCancelSeen = false;  // M5 P3：工具响应取消令牌后置位，工具批收尾时判停
     QString m_terminalStatus;       // M5-①终态覆写（"cancelled"），空=按 ok/m_state 推导
+    std::atomic<bool> m_pauseRequested{false}; // M5 P2：暂停请求（轮边界消费）
+    bool m_paused = false;          // M5 P2：当前处于挂起状态
 
     // 待授权工具调用（AwaitingPermission 状态下挂起）
     QString m_pendingCallId;

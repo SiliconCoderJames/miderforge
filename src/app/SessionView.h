@@ -36,6 +36,7 @@ public slots:
 private slots:
     void onSend();
     void onStop();
+    void onPauseToggled(); // M5 P2：暂停/继续切换
 
 private:
     QWidget* buildStatusStrip();
@@ -81,6 +82,7 @@ private:
     QComboBox* m_permCombo = nullptr;
     QPushButton* m_sendBtn = nullptr;
     QPushButton* m_stopBtn = nullptr;
+    QPushButton* m_pauseBtn = nullptr; // M5 P2：暂停/继续
 
     // 流式过程中的临时状态
     AssistantBlock* m_curAssistant = nullptr;
