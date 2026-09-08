@@ -121,6 +121,23 @@ TEST_CASE("会话内总是允许：命令通道授一次全放") {
           == PermissionGate::Decision::NeedsConfirm);
 }
 
+TEST_CASE("会话内总是允许：网络通道授予独立生效（权限卡片按通道授予回归）") {
+    PermissionGate gate;
+    // 命令通道的授予不应误开网络通道（反之亦然）
+    gate.grantAlwaysForSession(PermissionGate::Kind::RunCommand);
+    CHECK(gate.evaluate(PermissionMode::FullAccess, PermissionGate::Kind::Network,
+                        QStringLiteral("https://example.com/api"), WS)
+          == PermissionGate::Decision::NeedsConfirm);
+    gate.grantAlwaysForSession(PermissionGate::Kind::Network);
+    CHECK(gate.evaluate(PermissionMode::FullAccess, PermissionGate::Kind::Network,
+                        QStringLiteral("https://example.com/api"), WS)
+          == PermissionGate::Decision::Allowed);
+    gate.resetSessionGrants();
+    CHECK(gate.evaluate(PermissionMode::FullAccess, PermissionGate::Kind::Network,
+                        QStringLiteral("https://example.com/api"), WS)
+          == PermissionGate::Decision::NeedsConfirm);
+}
+
 // ---- 对抗样本（审查报告 A 组回归） ----
 
 TEST_CASE("对抗：递归删除变体全部命中硬拒绝（rm -rf/-fr/--recursive/-Recurse/cmake -E rm）") {

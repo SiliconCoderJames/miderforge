@@ -553,8 +553,14 @@ void AgentLoop::executePendingTool(int decision) {
         finishToolBatch();
         return;
     }
-    if (decision == 1)
-        m_gate.grantAlwaysForSession(PermissionGate::Kind::RunCommand); // 总是允许仅命令通道
+    if (decision == 1) {
+        // "总是允许"授予【本次挂起工具】的真实通道（原先写死命令通道：
+        // 网络工具点总是允许会授错通道，本会话后续网络请求仍反复弹卡）。
+        // WriteFile 的授予存储后暂不被 evaluate 咨询（Suggest 档写文件保持逐次确认，安全优先）
+        PermissionGate::Kind grantedKind = PermissionGate::Kind::RunCommand;
+        classifyTarget(name, args, &grantedKind);
+        m_gate.grantAlwaysForSession(grantedKind);
+    }
     setState(State::Executing);
     executeToolCall(callId, name, args);
     finishToolBatch();
