@@ -4,15 +4,19 @@
 
 **云端大脑 · 本地身体 — 运行在你自己电脑上的 AI 编码 Agent**
 
-*A Qt-based Windows desktop AI coding agent: cloud brain (multi-provider LLMs) + local body (a resident C++ process).*
+*一款 Qt 6 桌面端 AI Agent：多厂商 LLM 当大脑，驻留本机的 C++ 进程当手脚。*
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-4a8cff.svg)](LICENSE)
 [![C++](https://img.shields.io/badge/C%2B%2B-20-00599C.svg?logo=c%2B%2B&logoColor=white)](https://isocpp.org)
 [![Qt](https://img.shields.io/badge/Qt-6.8-41CD52.svg?logo=qt&logoColor=white)](https://www.qt.io)
 [![Platform](https://img.shields.io/badge/Platform-Windows%2010%2B-0078D6.svg?logo=windows&logoColor=white)](https://github.com)
-[![Build](https://img.shields.io/badge/CMake-3.24%2B-e06c60.svg?logo=cmake&logoColor=white)](#构建)
+[![CMake](https://img.shields.io/badge/CMake-3.24%2B-e06c60.svg?logo=cmake&logoColor=white)](#快速开始)
+
 [![CI](https://github.com/SiliconCoderJames/miderforge/actions/workflows/ci.yml/badge.svg)](https://github.com/SiliconCoderJames/miderforge/actions/workflows/ci.yml)
+[![Docs](https://img.shields.io/badge/docs-CONFIG%20%7C%20ACCEPTANCE-8A2BE2.svg?logo=readthedocs&logoColor=white)](docs/CONFIG.md)
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-%E2%98%95-FFDD00.svg?logo=buymeacoffee&logoColor=black)](https://www.buymeacoffee.com/zwj8jc5rrgp)
+
+**喜欢这个项目？欢迎 ⭐ Star、提 [Issue](https://github.com/SiliconCoderJames/miderforge/issues)，或参与 [🤝 贡献](#贡献)。**
 
 </div>
 
@@ -20,20 +24,43 @@
 
 ## 📖 简介
 
-Miderforge 是一款可长期驻留的 Windows 桌面 AI Agent 系统。你用中文下达目标，它自主进行多轮 **规划 → 执行 → 观察 → 反思**，操作本机文件与命令直到任务完成——人不在电脑前也行，结束后通过邮件与托盘通知你。
+Miderforge 是一款可长期驻留的 Windows 桌面 AI Agent。你用中文下达目标，它自主进行多轮 **规划 → 执行 → 观察 → 反思**，以受限方式操作本机文件与命令，直到任务完成——人不在电脑前也能跑完，结束后通过邮件与托盘通知你。
 
 三大核心资产（项目的灵魂）：
 
 | 资产 | 说明 |
 |---|---|
-| 🧠 **记忆** | L0–L3 分层记忆系统：核心记忆常驻注入、会话摘要滚动、档案库全文检索（FTS5），Agent 越用越懂你 |
+| 🧠 **记忆** | L0–L3 分层记忆：核心记忆常驻注入、会话摘要滚动、档案库全文检索（FTS5），Agent 越用越懂你 |
 | 🧰 **技能库** | 成功任务方案自动固化为可复用 `SKILL.md`（agentskills.io 风格），带使用统计与自动降权 |
 | 🗄️ **数据库** | SQLite（WAL + FTS5 trigram）承载记忆/技能/任务/事件的全量持久化与审计 |
+
+## 📸 界面一览
+
+**💬 会话视图 ｜ 📋 任务队列** — 流式双栏对话 · 任务状态语义色与步骤时间线
+
+<p align="center">
+  <img src="docs/assets/screenshots/session.png" alt="会话视图" width="49%">
+  <img src="docs/assets/screenshots/tasks.png" alt="任务队列" width="49%">
+</p>
+
+**🔌 供应商管理 ｜ 🧰 技能库** — 三档路由与故障转移链 · 技能自沉淀与使用统计
+
+<p align="center">
+  <img src="docs/assets/screenshots/providers.png" alt="供应商管理" width="49%">
+  <img src="docs/assets/screenshots/skills.png" alt="技能库" width="49%">
+</p>
+
+**🧠 记忆管理 ｜ 📜 审计日志** — 分层记忆与全文检索 · append-only 操作留痕
+
+<p align="center">
+  <img src="docs/assets/screenshots/memory.png" alt="记忆管理" width="49%">
+  <img src="docs/assets/screenshots/audit.png" alt="审计日志" width="49%">
+</p>
 
 ## ✨ 功能特性
 
 - 🤖 **自主 Agent 循环** — ReAct 状态机，工具调用、轮数熔断、token 预算、死循环检测三重保险
-- 🌊 **流式对话** — 思考过程与正文双栏展示，SSE 分帧解析，断线指数退避自动重试
+- 🌊 **流式对话** — 思考过程与正文分栏展示，SSE 分帧解析，断线指数退避自动重试
 - 🔀 **多供应商路由** — 智谱 / DeepSeek 直连（无中间商），fast/main/flagship 三档路由，连续失败自动故障转移
 - 🔐 **三档权限** — Suggest / Auto Edit / Full Access（Codex 式），永不解禁清单，API Key 由 Windows DPAPI 加密存储
 - 🛡️ **Windows 沙箱** — 权限门 + QProcess 环境剥离 + Job Object（超时/内存上限/退出连带终止）
@@ -41,33 +68,16 @@ Miderforge 是一款可长期驻留的 Windows 桌面 AI Agent 系统。你用�
 - 📧 **通知触达** — 任务完成/失败/熔断 → SMTP 邮件（RFC 2047 中文标题）+ 系统托盘气泡
 - 🌓 **深色主题 Qt 界面** — 会话视图 / 任务队列 / 技能库 / 记忆 / 供应商 / 审计日志六大面板
 
-## 🏗️ 架构
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                     Qt 6 Widgets 深色 UI                     │
-│   会话 · 任务队列 · 技能库 · 记忆 · 供应商 · 审计 · 托盘      │
-├──────────────┬──────────────────────────────┬───────────────┤
-│  core/       │  llm/                        │  tools/       │
-│  AgentLoop   │  ChatClient（厂商兼容层）     │  ToolRegistry │
-│  Scheduler   │  HttpClient(curl 工作线程)   │  PermissionGate│
-│  Router      │  SseParser / SSE 分帧        │  Sandbox      │
-├──────────────┴──────────────────────────────┴───────────────┤
-│   memory/ 分层记忆        db/ SQLite(WAL+FTS5)               │
-│   skills/ 技能自沉淀      notify/ SMTP + 托盘                │
-└─────────────────────────────────────────────────────────────┘
-```
-
 ## ⚠️ 安全须知
 
-**Miderforge 会在你的电脑上读写文件并执行命令。**
+**Miderforge 会在你的电脑上读写文件并执行命令。** 请先理解以下边界再使用：
 
-- 请从 **Suggest** 权限档开始使用，理解三档权限差异后再提升；
+- 从 **Suggest** 权限档开始，理解三档权限差异后再提升；
 - 敏感路径（`*credential*`、`*.env*`、`id_rsa` 等）任何档位下均被硬拦截；
 - 所有操作记录于本地审计日志（`events` 表），可随时回溯；
 - 本项目按 MIT 协议“原样”提供，使用者自行承担运行风险。
 
-## 🚀 Quick Start
+## 🚀 快速开始
 
 > **前置条件**：Windows 10+ · Visual Studio 2022/2026 (MSVC) · CMake ≥ 3.24 · vcpkg · Qt 6.8 Widgets
 
@@ -92,6 +102,31 @@ build\Release\miderforge.exe
 
 > Qt 路径不同？修改 `CMakePresets.json` 中的 `CMAKE_PREFIX_PATH`。
 
+## 📚 更多文档
+
+| 文档 | 说明 |
+|---|---|
+| 📖 [docs/CONFIG.md](docs/CONFIG.md) | 详细配置指南：供应商 Key、权限档、SMTP 通知与密钥卫生红线 |
+| ✅ [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md) | 逐条验收清单，含需真实 Key / SMTP 授权码人工复核的端到端项 |
+| 🖼️ [docs/assets/screenshots/](docs/assets/screenshots/) | 全部面板截图原图 |
+
+## 🏗️ 架构
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     Qt 6 Widgets 深色 UI                     │
+│   会话 · 任务队列 · 技能库 · 记忆 · 供应商 · 审计 · 托盘      │
+├──────────────┬──────────────────────────────┬───────────────┤
+│  core/       │  llm/                        │  tools/       │
+│  AgentLoop   │  ChatClient（厂商兼容层）     │  ToolRegistry │
+│  Scheduler   │  HttpClient(curl 工作线程)   │  PermissionGate│
+│  Router      │  SseParser / SSE 分帧        │  Sandbox      │
+├──────────────┴──────────────────────────────┴───────────────┤
+│   memory/ 分层记忆        db/ SQLite(WAL+FTS5)               │
+│   skills/ 技能自沉淀      notify/ SMTP + 托盘                │
+└─────────────────────────────────────────────────────────────┘
+```
+
 ## 📁 目录结构
 
 ```
@@ -107,7 +142,7 @@ Miderforge/
 │   ├── notify/     # SMTP 邮件、托盘通知
 │   └── util/       # DPAPI、日志、目录、token 估算
 ├── tests/          # doctest 单元测试（可脱离 GUI 运行）
-├── docs/           # CONFIG.md 配置指南 · ACCEPTANCE.md 验收清单
+├── docs/           # CONFIG.md 配置指南 · ACCEPTANCE.md 验收清单 · 界面截图
 ├── third_party/    # SQLite amalgamation · sqlite-vec（内置源码）
 └── config/         # providers.template.json（唯一入库的配置模板）
 ```
@@ -124,36 +159,16 @@ Miderforge/
 
 > 单元测试 53 个（doctest，可脱离 GUI 运行）全部通过。涉及真实 API Key / SMTP 授权码的端到端项请在配置后自行复核，明细见 [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md)。
 
-## 📸 Screenshots
-
-<div align="center">
-
-**💬 会话视图** — 任务气泡 · 流式状态 · 内联错误提示
-
-![会话视图](docs/assets/screenshots/session.png)
-
-**📋 任务队列** — 状态语义色 · 步骤时间线
-
-![任务队列](docs/assets/screenshots/tasks.png)
-
-| 🔌 供应商（三档路由 + 故障转移链） | 📜 审计日志（append-only 全量留痕） |
-|---|---|
-| ![供应商](docs/assets/screenshots/providers.png) | ![审计日志](docs/assets/screenshots/audit.png) |
-
-</div>
-
-> 更多视图（🧰 技能库 / 🧠 记忆）见 [docs/assets/screenshots/](docs/assets/screenshots/)。
-
 ## 🤝 贡献
 
 欢迎 Issue 与 PR！提交前请：
 
-1. 保持既有代码风格（中文注释、`m_` 成员前缀、命名空间 `miderforge`）；
+1. 保持既有代码风格：中文注释、`m_` 成员前缀、命名空间 `miderforge`；
 2. 为纯逻辑改动补充 doctest 单测；
-3. 运行密钥自检：`git ls-files | findstr /i "key secret token env pass"`，确认无敏感值；
+3. 运行密钥自检：`git ls-files | findstr /i "key secret token env pass"`，确认无敏感值入库；
 4. 遵守 [docs/CONFIG.md](docs/CONFIG.md) 开头的密钥卫生红线。
 
-## 💬 联系与反馈
+## 📬 联系与反馈
 
 | 渠道 | 链接 |
 |---|---|
@@ -178,10 +193,8 @@ Miderforge/
 
 **其他方式：**
 
-| 方式 | 说明 |
-|---|---|
-| GitHub Sponsors | 仓库右上角 **♥ Sponsor** 按钮（配置见 [.github/FUNDING.yml](.github/FUNDING.yml)） |
-| 微信 / 支付宝收钱码 | 可选：届时将收款二维码图片放入 `docs/assets/` 后在此展示 |
+- **GitHub Sponsors** — 仓库首页右上角 **♥ Sponsor** 按钮（[.github/FUNDING.yml](.github/FUNDING.yml) 已配置）
+- **微信 / 支付宝收款码** — 暂未开放，开放后会在此补充
 
 ## 📄 License
 
