@@ -12,7 +12,7 @@
 [![Platform](https://img.shields.io/badge/Platform-Windows%2010%2B-0078D6.svg?logo=windows&logoColor=white)](https://github.com)
 [![Build](https://img.shields.io/badge/CMake-3.24%2B-e06c60.svg?logo=cmake&logoColor=white)](#构建)
 [![CI](https://github.com/SiliconCoderJames/miderforge/actions/workflows/ci.yml/badge.svg)](https://github.com/SiliconCoderJames/miderforge/actions/workflows/ci.yml)
-[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-%E2%98%95-FFDD00.svg?logo=buymeacoffee&logoColor=black)](https://www.buymeacoffee.com/your-account)
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-%E2%98%95-FFDD00.svg?logo=buymeacoffee&logoColor=black)](https://www.buymeacoffee.com/zwj8jc5rrgp)
 
 </div>
 
@@ -167,23 +167,21 @@ Miderforge/
 
 如果 Miderforge 帮你省下了时间，欢迎请作者喝杯咖啡 ☕——所有赞助将用于 API 调用测试经费与后续开发。
 
-<a href="https://www.buymeacoffee.com/your-account" target="_blank">
-  <img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" height="48">
-</a>
+<div align="center">
+  <a href="https://www.buymeacoffee.com/zwj8jc5rrgp" target="_blank">
+    <img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" height="48">
+  </a>
+  <br><br>
+  <img src="docs/assets/buymeacoffee-qr.png" alt="扫二维码赞助作者" width="200">
+  <br><sub>扫码直达赞助页 · Scan to buy me a coffee</sub>
+</div>
 
 **其他方式：**
 
 | 方式 | 说明 |
 |---|---|
 | GitHub Sponsors | 仓库右上角 **♥ Sponsor** 按钮（配置见 [.github/FUNDING.yml](.github/FUNDING.yml)） |
-| 微信 / 支付宝收钱码 | 占位：将收款二维码图片放入 `docs/assets/` 后在此展示 |
-
-<!--
-  发布前替换清单（作者自用，渲染不可见）：
-  1. Buy Me a Coffee 账号（两处 buymeacoffee.com/your-account：顶部徽章 + 赞助按钮，
-     以及 .github/FUNDING.yml 的 buymeacoffee 条目）
-  2. docs/assets/ 放入收款码图片后取消上方表格占位说明
--->
+| 微信 / 支付宝收钱码 | 可选：届时将收款二维码图片放入 `docs/assets/` 后在此展示 |
 
 ## 📄 License
 
