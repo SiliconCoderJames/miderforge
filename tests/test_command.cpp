@@ -4,7 +4,6 @@
 #include "tools/ToolRegistry.h"
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <QFile>
 #include <doctest/doctest.h>
 
 using miderforge::ToolRegistry;
@@ -12,11 +11,6 @@ using miderforge::ToolRegistry;
 static QJsonObject run(ToolRegistry& reg, const QString& cmd) {
     const auto res = reg.execute(QStringLiteral("run_command"),
                                  QStringLiteral("{\"command\": \"%1\"}").arg(cmd));
-    {
-        QFile f(QStringLiteral("./cmd-test-dump.txt"));
-        f.open(QIODevice::WriteOnly | QIODevice::Truncate);
-        f.write(QStringLiteral("ok=%1\ntext=%2\n").arg(res.ok).arg(res.text).toUtf8());
-    }
     CHECK(res.ok);
     return QJsonDocument::fromJson(res.text.toUtf8()).object();
 }
