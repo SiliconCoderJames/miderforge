@@ -60,6 +60,22 @@ public:
     static double score(double bm25Rank, double importance, qint64 updatedAt,
                         qint64 nowSecs, qint64 accessCount);
 
+    // ---- 一致性扫描（存储体系：跨条目矛盾候选检测） ----
+    struct ContradictionPair {
+        qint64 idA = 0;
+        qint64 idB = 0;
+        QString contentA;
+        QString contentB;
+        QString type;
+        double similarity = 0; // 字符三元组 Dice 系数 (0,1]
+    };
+    // 检测"高度相似但不相同"的 active 记忆对（矛盾/冗余的确定性信号，交用户裁决）：
+    // 事实类类型（project_facts/task_lesson/coding_pref/user_profile）、相似度 ∈ [0.35, 0.95]、
+    // 排除完全相同（冗余副本另计）。会话摘要按时间天然演化，不参与。按相似度降序，至多 maxPairs
+    QVector<ContradictionPair> findContradictionCandidates(int maxPairs = 20) const;
+    // 字符三元组 Dice 相似度（暴露给单测；中文友好，无需分词）
+    static double trigramDice(const QString& a, const QString& b);
+
 private:
     QVector<MemoryRecord> selectBySql(const QString& sql, const QVariantList& binds) const;
 

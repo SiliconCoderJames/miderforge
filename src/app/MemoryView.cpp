@@ -49,12 +49,16 @@ MemoryView::MemoryView(MemoryManager* mem, QWidget* parent) : QWidget(parent), m
     m_saveBtn = new QPushButton(QStringLiteral("保存修改"), this);
     m_archiveBtn = new QPushButton(QStringLiteral("标记废弃"), this);
     auto* l1Btn = new QPushButton(QStringLiteral("编辑 L1 核心记忆"), this);
+    auto* scanBtn = new QPushButton(QStringLiteral("🔍 矛盾扫描"), this);
+    scanBtn->setToolTip(QStringLiteral("检测高度相似的可疑记忆对（同主题新旧两种说法），人工裁决归档哪条"));
+    connect(scanBtn, &QPushButton::clicked, this, &MemoryView::onScanContradictions);
     connect(m_saveBtn, &QPushButton::clicked, this, &MemoryView::onSaveDetail);
     connect(m_archiveBtn, &QPushButton::clicked, this, &MemoryView::onArchive);
     connect(l1Btn, &QPushButton::clicked, this, &MemoryView::onEditL1);
     btnRow->addWidget(m_saveBtn);
     btnRow->addWidget(m_archiveBtn);
     btnRow->addStretch(1);
+    btnRow->addWidget(scanBtn);
     btnRow->addWidget(l1Btn);
     rightLay->addWidget(m_metaLabel);
     rightLay->addWidget(m_detail, 1);
@@ -151,6 +155,63 @@ void MemoryView::onArchive() {
 void MemoryView::onEditL1() {
     const QString current = m_mem->loadL1();
     showL1Editor(current, m_mem->l1Tokens());
+}
+
+void MemoryView::onScanContradictions() {
+    // 一致性扫描 v1：确定性候选对（字符三元组 Dice ∈ [0.35,0.95]）+ 人工裁决归档。
+    // LLM 语义裁决为后续增强（对候选对批量提问，成本可控）
+    const auto pairs = m_mem->findContradictionCandidates();
+    if (pairs.isEmpty()) {
+        QMessageBox::information(this, QStringLiteral("矛盾扫描"),
+                                 QStringLiteral("未发现高度相似的可疑记忆对。"));
+        return;
+    }
+    QDialog dlg(this);
+    dlg.setWindowTitle(QStringLiteral("矛盾扫描：%1 个可疑记忆对").arg(pairs.size()));
+    dlg.resize(760, 480);
+    auto* lay = new QVBoxLayout(&dlg);
+    auto* hint = new QLabel(
+        QStringLiteral("以下记忆对高度相似但内容不同（可能是同一事实的新旧两种说法）。\n"
+                       "选择一条保留在列表中，将另一条标记废弃："),
+        &dlg);
+    auto* list = new QListWidget(&dlg);
+    for (const auto& p : pairs)
+        list->addItem(QStringLiteral("[#%1] %2  ↔  [#%3] %4  （相似度 %5%）")
+                          .arg(p.idA)
+                          .arg(p.contentA.left(40))
+                          .arg(p.idB)
+                          .arg(p.contentB.left(40))
+                          .arg(int(p.similarity * 100)));
+    auto* btnRow = new QHBoxLayout();
+    auto* archiveA = new QPushButton(QStringLiteral("废弃左侧（#A）"), &dlg);
+    auto* archiveB = new QPushButton(QStringLiteral("废弃右侧（#B）"), &dlg);
+    auto* closeBtn = new QPushButton(QStringLiteral("关闭"), &dlg);
+    archiveA->setEnabled(false);
+    archiveB->setEnabled(false);
+    connect(list, &QListWidget::currentRowChanged, this, [&](int row) {
+        archiveA->setEnabled(row >= 0);
+        archiveB->setEnabled(row >= 0);
+    });
+    auto onArchiveSide = [&](bool sideA) {
+        const int row = list->currentRow();
+        if (row < 0 || row >= pairs.size())
+            return;
+        const qint64 id = sideA ? pairs[row].idA : pairs[row].idB;
+        m_mem->archiveMemory(id);
+        delete list->takeItem(row); // 已裁决：从候选中移除
+    };
+    connect(archiveA, &QPushButton::clicked, &dlg, [&] { onArchiveSide(true); });
+    connect(archiveB, &QPushButton::clicked, &dlg, [&] { onArchiveSide(false); });
+    connect(closeBtn, &QPushButton::clicked, &dlg, &QDialog::accept);
+    btnRow->addWidget(archiveA);
+    btnRow->addWidget(archiveB);
+    btnRow->addStretch(1);
+    btnRow->addWidget(closeBtn);
+    lay->addWidget(hint);
+    lay->addWidget(list, 1);
+    lay->addLayout(btnRow);
+    dlg.exec();
+    reload(); // 裁决后刷新主列表
 }
 
 void MemoryView::showL1Editor(const QString& current, qint64 tokens) {

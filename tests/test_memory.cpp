@@ -133,6 +133,45 @@ TEST_CASE("L2 淘汰评分化：高价值旧摘要不被 FIFO 挤掉（评分保
     CHECK(valuableSurvived);
 }
 
+TEST_CASE("一致性扫描：相似候选对检测与排除规则（矛盾扫描核心）") {
+    using miderforge::MemoryManager;
+    // 三元组 Dice：完全相同 = 1，无关 ≈ 0
+    CHECK(MemoryManager::trigramDice(QStringLiteral("项目用 Meson 组织构建"),
+                                     QStringLiteral("项目用 Meson 组织构建")) == doctest::Approx(1.0));
+    CHECK(MemoryManager::trigramDice(QStringLiteral("缩进风格空格四宽"),
+                                     QStringLiteral("SMTP 邮件服务器授权码")) < 0.35);
+
+    MemFixture f;
+    // 完全相同的冗余副本：不报矛盾（冗余 ≠ 矛盾）
+    f.mem->addMemory(QStringLiteral("project_facts"),
+                     QStringLiteral("项目用 Meson 组织构建脚本"), 0.5);
+    f.mem->addMemory(QStringLiteral("project_facts"),
+                     QStringLiteral("项目用 Meson 组织构建脚本"), 0.5);
+    CHECK(f.mem->findContradictionCandidates().isEmpty());
+}
+
+TEST_CASE("一致性扫描：相似变体命中、无关对排除、归档退出候选") {
+    MemFixture f;
+    const qint64 a = f.mem->addMemory(QStringLiteral("project_facts"),
+                                      QStringLiteral("项目用 Meson 组织构建脚本"), 0.5);
+    const qint64 b = f.mem->addMemory(QStringLiteral("project_facts"),
+                                      QStringLiteral("项目用 Meson 组织构建脚本，计划下周切换"), 0.5);
+    f.mem->addMemory(QStringLiteral("task_lesson"),
+                     QStringLiteral("SMTP 邮件通知需要授权码"), 0.8); // 无关对
+    f.mem->addSessionSummary(QStringLiteral("项目用 Meson 组织构建脚本的会话摘要")); // 会话摘要不参与
+
+    const auto pairs = f.mem->findContradictionCandidates();
+    REQUIRE(pairs.size() == 1);
+    CHECK(((pairs.front().idA == a && pairs.front().idB == b)
+           || (pairs.front().idA == b && pairs.front().idB == a)));
+    CHECK(pairs.front().similarity > 0.35);
+    CHECK(pairs.front().similarity < 0.95);
+
+    // 归档一侧后该对退出候选
+    CHECK(f.mem->archiveMemory(b));
+    CHECK(f.mem->findContradictionCandidates().isEmpty());
+}
+
 TEST_CASE("综合评分：高重要度+新近条目排前；归档条目不召回") {
     MemFixture f;
     f.mem->addMemory(QStringLiteral("coding_pref"), QStringLiteral("缩进风格：空格 4 宽。"), 0.9);

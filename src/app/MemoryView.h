@@ -28,6 +28,7 @@ private slots:
     void onSaveDetail();
     void onArchive();
     void onEditL1();
+    void onScanContradictions(); // 一致性扫描：相似候选对人工裁决
 
 private:
     void showL1Editor(const QString& current, qint64 tokens);

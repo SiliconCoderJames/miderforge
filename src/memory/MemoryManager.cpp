@@ -10,6 +10,7 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QRegularExpression>
+#include <QSet>
 #include <algorithm>
 #include <cmath>
 
@@ -246,6 +247,56 @@ QVector<MemoryManager::MemoryRecord> MemoryManager::retrieve(const QString& rawQ
         recordAccess(cands[i].rec.id); // 命中即计数（规格 6）
         out.push_back(cands[i].rec);
     }
+    return out;
+}
+
+double MemoryManager::trigramDice(const QString& a, const QString& b) {
+    // 字符三元组 Dice：中文友好（无需分词），"高度相似但不相同"在 0.35~0.95 区间信号最强
+    const auto grams = [](const QString& s) {
+        QSet<QString> out;
+        const QString t = s.simplified();
+        for (int i = 0; i + 3 <= t.size(); ++i)
+            out.insert(t.mid(i, 3));
+        return out;
+    };
+    const QSet<QString> ga = grams(a);
+    const QSet<QString> gb = grams(b);
+    if (ga.isEmpty() || gb.isEmpty())
+        return 0.0;
+    int shared = 0;
+    for (const QString& g : ga)
+        if (gb.contains(g))
+            ++shared;
+    return 2.0 * shared / double(ga.size() + gb.size());
+}
+
+QVector<MemoryManager::ContradictionPair> MemoryManager::findContradictionCandidates(int maxPairs) const {
+    constexpr double kMinSim = 0.35; // 低于此视为无关
+    constexpr double kMaxSim = 0.95; // 高于此视为冗余副本而非矛盾
+    constexpr int kScanLimit = 200;  // 每类型扫描上限（按钮触发的一次性 O(n²) 可接受）
+
+    const auto facts = selectBySql(QStringLiteral(
+        "SELECT id,type,content FROM memories WHERE status='active' "
+        "AND type IN ('project_facts','task_lesson','coding_pref','user_profile') "
+        "ORDER BY updated_at DESC LIMIT ?"), {kScanLimit});
+
+    QVector<ContradictionPair> out;
+    for (int i = 0; i < facts.size(); ++i) {
+        for (int j = i + 1; j < facts.size(); ++j) {
+            if (facts[i].content == facts[j].content)
+                continue;
+            const double sim = trigramDice(facts[i].content, facts[j].content);
+            if (sim < kMinSim || sim > kMaxSim)
+                continue;
+            out.push_back({facts[i].id, facts[j].id, facts[i].content, facts[j].content,
+                           facts[i].type, sim});
+            if (out.size() >= maxPairs)
+                return out;
+        }
+    }
+    std::sort(out.begin(), out.end(), [](const ContradictionPair& a, const ContradictionPair& b) {
+        return a.similarity > b.similarity;
+    });
     return out;
 }
 
