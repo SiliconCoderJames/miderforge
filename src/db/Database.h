@@ -40,7 +40,10 @@ private:
     bool migrate();
 
     sqlite3* m_db = nullptr;
-    QMutex m_writeMutex; // 写串行化（规格：一个写线程或 mutex）
+    // 写串行化（规格：一个写线程或 mutex）。
+    // 锁层级纪律：本锁只允许被【外层】锁（如 EventBus::s_mutex）嵌套，反向嵌套 = 锁序倒置死锁；
+    // query() 不加本锁——WAL 下读者拿快照，与写者互不阻塞（读到的可能是未含最新写入的快照，属 WAL 语义而非缺陷）
+    QMutex m_writeMutex;
     QString m_lastError;
 };
 

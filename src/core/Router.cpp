@@ -15,12 +15,14 @@ Router::Tier Router::classify(const QString& goal) {
         QStringLiteral("格式化"), QStringLiteral("重命名"), QStringLiteral("简单查询"), QStringLiteral("单文件"),
         QStringLiteral("改个名"), QStringLiteral("注释"), QStringLiteral("拼写"),
     };
-    for (const QString& k : flagshipKeys)
-        if (goal.contains(k))
-            return Tier::Flagship;
+    // fast 先于 flagship 判定：操作意图词（格式化/重命名…）优先于宾语修饰词。
+    // "格式化一份架构设计文档"的操作是格式化（fast），"架构设计"只是宾语；先扫 flagship 会误升档
     for (const QString& k : fastKeys)
         if (goal.contains(k))
             return Tier::Fast;
+    for (const QString& k : flagshipKeys)
+        if (goal.contains(k))
+            return Tier::Flagship;
     return Tier::Main; // 默认全部走 main 档（规格 8）
 }
 

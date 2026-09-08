@@ -2,6 +2,7 @@
 #pragma once
 #include "core/Breaker.h"
 #include <QString>
+#include <atomic>
 
 namespace miderforge {
 
@@ -19,7 +20,9 @@ public:
 
     PermissionMode permissionMode = PermissionMode::Suggest;
     QString workspaceRoot;
-    long long todayTokens = 0;      // 今日累计（M0 会话内统计；M2 起由 events 表汇总）
+    // 今日累计（M0 会话内统计；M2 起由 events 表汇总）。
+    // 原子化：当前所有读写都在 GUI 线程，但该对象天然跨模块共享，防止后续引入工作线程时静默变成数据竞争
+    std::atomic<long long> todayTokens{0};
     QString activeModelLabel;       // 状态栏展示用："zhipu·glm-5.3"
     Breaker::Limits limits;         // 预算与熔断（设置页可改：轮数 25/token 500K/相同失败 3）
     int l1TokenLimit = 4000;        // L1 记忆上限（设置页可改）

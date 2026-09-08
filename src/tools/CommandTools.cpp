@@ -24,14 +24,17 @@ QString envelope(const QJsonObject& obj) {
     return QString::fromUtf8(QJsonDocument(obj).toJson(QJsonDocument::Compact));
 }
 
-// 显式白名单构造子进程环境：绝不继承父进程全环境（防泄漏 API Key，踩坑清单 #10）
+// 子进程环境白名单：绝不继承父进程全环境。
+// 保留原则：只保留编译工具链【功能性依赖】的变量（PATH/系统根/临时目录/MSVC/Qt/SDK 路径）。
+// 身份信息披露最小化：USERNAME/HOMEDRIVE/HOMEPATH/PROGRAMDATA 已剔除——
+// 恶意构造的构建脚本可借它们上报用户名与目录结构（API Key 本就走 HTTP 头，不在此通道）。
+// USERPROFILE/APPDATA/LOCALAPPDATA 保留：git 全局配置与部分 MSVC 工具的硬依赖，剔除会破坏 git/cmake 工作流
 QProcessEnvironment sanitizedEnvironment() {
     static const QStringList kKeep = {
         QStringLiteral("PATH"),        QStringLiteral("SYSTEMROOT"),  QStringLiteral("SYSTEMDRIVE"),
         QStringLiteral("TEMP"),        QStringLiteral("TMP"),         QStringLiteral("COMSPEC"),
-        QStringLiteral("PATHEXT"),     QStringLiteral("USERNAME"),    QStringLiteral("USERPROFILE"),
-        QStringLiteral("HOMEDRIVE"),   QStringLiteral("HOMEPATH"),    QStringLiteral("APPDATA"),
-        QStringLiteral("LOCALAPPDATA"), QStringLiteral("PROGRAMDATA"), QStringLiteral("PROGRAMFILES"),
+        QStringLiteral("PATHEXT"),     QStringLiteral("USERPROFILE"),
+        QStringLiteral("APPDATA"),     QStringLiteral("LOCALAPPDATA"), QStringLiteral("PROGRAMFILES"),
         // 编译环境（MSVC/Qt 开发者命令行下的常见变量；存在才透传）
         QStringLiteral("INCLUDE"),     QStringLiteral("LIB"),         QStringLiteral("LIBPATH"),
         QStringLiteral("VCINSTALLDIR"), QStringLiteral("VSINSTALLDIR"), QStringLiteral("WindowsSdkDir"),
@@ -134,7 +137,9 @@ void CommandTools::registerAll(ToolRegistry& reg) {
         jobGuard.assign(proc.processId()); // 启动后立即入 Job
 #endif
 
-        // 嵌套事件循环等待结束：保持 UI 消息泵（权限卡片/流式渲染）可响应
+        // 嵌套事件循环等待结束：保持 UI 消息泵（权限卡片/流式渲染）可响应。
+        // ExcludeUserInputEvents：抑制用户输入事件重入（嵌套 QEventLoop 的已知反模式风险），
+        // socket/定时器事件仍分发以维持流式渲染与超时计时
         QElapsedTimer clock;
         clock.start();
         QEventLoop loop;
@@ -148,7 +153,7 @@ void CommandTools::registerAll(ToolRegistry& reg) {
         });
         QObject::connect(&proc, &QProcess::errorOccurred, &loop, [&] { loop.quit(); });
         timeout.start(timeoutSec * 1000);
-        loop.exec();
+        loop.exec(QEventLoop::ExcludeUserInputEvents);
 
         const bool timedOut = clock.elapsed() >= timeoutSec * 1000 && proc.state() != QProcess::NotRunning;
         if (timedOut)

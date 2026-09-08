@@ -133,8 +133,7 @@ bool EmailNotifier::sendOnce(const QString& mime, QString* err) {
     rcpt = curl_slist_append(rcpt, to.constData());
     curl_easy_setopt(curl, CURLOPT_MAIL_RCPT, rcpt);
 
-    static ReadCtx ctx; // curl 会话内同步使用
-    ctx = ReadCtx{mime.toUtf8(), 0};
+    ReadCtx ctx{mime.toUtf8(), 0}; // 局部变量：static 会在并发 send 时互相覆盖正文
     curl_easy_setopt(curl, CURLOPT_READFUNCTION, &readCallback);
     curl_easy_setopt(curl, CURLOPT_READDATA, &ctx);
     curl_easy_setopt(curl, CURLOPT_UPLOAD, 1L);

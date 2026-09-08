@@ -13,6 +13,15 @@ Scheduler::Scheduler(Database* db, AgentLoop* loop, QObject* parent)
     connect(&m_timer, &QTimer::timeout, this, &Scheduler::onTick);
     m_timer.start(20 * 1000); // 20 秒轮询（定时任务到点即启）
     connect(m_loop, &AgentLoop::loopFinished, this, &Scheduler::onLoopFinished);
+
+    // 崩溃恢复：上一会话中断遗留的 running 任务重新入队。
+    // 否则 tick 只挑 queued，幽灵 running 会永久卡死（任务表与内存状态分裂的后果）
+    const auto stale = m_db->query(QStringLiteral("SELECT id FROM tasks WHERE status='running'"), {});
+    if (!stale.empty()) {
+        m_db->execute(QStringLiteral("UPDATE tasks SET status='queued' WHERE status='running'"), {});
+        if (auto lg = logutil::logger())
+            lg->warn("启动恢复：{} 个中断任务已重新入队", stale.size());
+    }
 }
 
 void Scheduler::tick() {

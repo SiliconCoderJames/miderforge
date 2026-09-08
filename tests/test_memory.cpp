@@ -61,6 +61,40 @@ TEST_CASE("搜 2 字词「热键」走 LIKE 兜底仍能命中") {
     CHECK(hits.first().content.contains(QStringLiteral("热键")));
 }
 
+TEST_CASE("LIKE 兜底通配符转义：% 与 _ 按字面匹配（审查 #13 回归）") {
+    MemFixture f;
+    f.mem->addMemory(QStringLiteral("project_facts"),
+                     QStringLiteral("构建成功率 100%，今日达标。"), 0.5);
+    f.mem->addMemory(QStringLiteral("project_facts"),
+                     QStringLiteral("构建成功 100 次的运行记录。"), 0.5);
+    // 2 字查询走 LIKE 路径；修复前 "0%" 的 % 是通配符，两条都会命中；转义后仅字面含 "0%" 的一条
+    const auto hits = f.mem->retrieve(QStringLiteral("0%"), 5);
+    REQUIRE(hits.size() == 1);
+    CHECK(hits.first().content.contains(QStringLiteral("100%")));
+
+    MemFixture g;
+    g.mem->addMemory(QStringLiteral("project_facts"),
+                     QStringLiteral("字段 x_y 命名规范。"), 0.5);
+    g.mem->addMemory(QStringLiteral("project_facts"),
+                     QStringLiteral(" xy 组合其他说明。"), 0.5);
+    // 修复前 "x_" 的 _ 匹配任意单字符，"xy" 也会被召回；转义后只命中字面 "x_"
+    const auto hits2 = g.mem->retrieve(QStringLiteral("x_"), 5);
+    REQUIRE(hits2.size() == 1);
+    CHECK(hits2.first().content.contains(QStringLiteral("x_y")));
+}
+
+TEST_CASE("LIKE 兜底多词 AND：两个短词同时命中才召回") {
+    MemFixture f;
+    f.mem->addMemory(QStringLiteral("project_facts"),
+                     QStringLiteral("全局热键绑定主窗口唤起。"), 0.5);
+    f.mem->addMemory(QStringLiteral("project_facts"),
+                     QStringLiteral("窗口关闭行为说明。"), 0.5);
+    // 两词都 ≤2 字，走 LIKE 路径；只含其一的记录不应召回（修复前只按最短词匹配）
+    const auto hits = f.mem->retrieve(QStringLiteral("热键 全局"), 5);
+    REQUIRE(hits.size() == 1);
+    CHECK(hits.first().content.contains(QStringLiteral("热键")));
+}
+
 TEST_CASE("综合评分：高重要度+新近条目排前；归档条目不召回") {
     MemFixture f;
     f.mem->addMemory(QStringLiteral("coding_pref"), QStringLiteral("缩进风格：空格 4 宽。"), 0.9);

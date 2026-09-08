@@ -336,7 +336,7 @@ void MainWindow::refreshStatusLabels() {
                                         ? QStringLiteral("未配置供应商")
                                         : AppContext::instance().activeModelLabel));
     m_statusTokens->setText(
-        QStringLiteral("今日 tokens: %1").arg(AppContext::instance().todayTokens));
+        QStringLiteral("今日 tokens: %1").arg(AppContext::instance().todayTokens.load()));
     m_statusMode->setText(
         QStringLiteral("模式: %1").arg(permissionModeName(AppContext::instance().permissionMode)));
     m_statusQueue->setText(QStringLiteral("队列: 0"));

@@ -48,6 +48,8 @@ public:
     // 当前供应商连续 2 次 429/超时/5xx 后调用：切到 failover_backup 并写盘；成功返回 true
     bool switchToFailover(const QString& reason);
     bool failedOver() const { return m_failedOver; }
+    // 冷却回切：距故障转移超过 cooldownSec 时切回主供应商（AgentLoop 每个新任务开始时调用）
+    bool maybeRestorePrimary(int cooldownSec = 600);
     // 供应商连接状态（供应商视图状态灯：绿=健康/红=故障/灰=未配置）
     enum class Health { Unknown, Ok, Fail };
     Health health(const QString& name) const { return m_health.value(name, Health::Unknown); }
@@ -65,6 +67,8 @@ private:
     std::vector<ProviderConfig> m_providers;
     QString m_active;
     bool m_failedOver = false;
+    QString m_primaryName;        // 故障转移前的主供应商（冷却回切用）
+    qint64 m_failoverSince = 0;   // 故障转移发生时刻（unix 秒）
     QMap<QString, Health> m_health;
 };
 

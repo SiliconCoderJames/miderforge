@@ -13,6 +13,19 @@
 
 namespace miderforge {
 
+namespace {
+
+// LIKE 通配符转义：% 与 _ 是用户内容里的常见字符（"100%"、"a_c"），不转义会被当通配符，
+// 查询行为错乱（虽非注入，但召回全错）；配合 SQL 的 ESCAPE '\' 子句使用
+QString likeEscape(QString word) {
+    word.replace(QLatin1Char('\\'), QStringLiteral("\\\\"));
+    word.replace(QLatin1Char('%'), QStringLiteral("\\%"));
+    word.replace(QLatin1Char('_'), QStringLiteral("\\_"));
+    return word;
+}
+
+} // namespace
+
 MemoryManager::MemoryManager(Database* db, const QString& l1Path)
     : m_db(db), m_l1Path(l1Path) {}
 
@@ -138,11 +151,20 @@ QVector<MemoryManager::MemoryRecord> MemoryManager::retrieve(const QString& rawQ
             shortestWord = w;
     }
     if (shortestWord.length() < 3) {
-        // LIKE 兜底（content LIKE '%词%'，active 过滤），按 importance+时间排序
+        // LIKE 兜底（content LIKE '%词%'，active 过滤），按 importance+时间排序。
+        // 所有词 AND 逐个匹配（多词查询只取最短词会漏召回），通配符已转义
+        QStringList conds;
+        QVariantList binds;
+        for (const QString& w : words) {
+            conds << QStringLiteral("content LIKE ? ESCAPE '\\'");
+            binds << QStringLiteral("%1%2%1").arg(QStringLiteral("%"), likeEscape(w));
+        }
+        binds << topN;
         QVector<MemoryRecord> hits = selectBySql(QStringLiteral(
             "SELECT id,type,content,importance,status,created_at,updated_at,access_count,last_accessed_at "
-            "FROM memories WHERE status='active' AND content LIKE ? ORDER BY importance DESC, updated_at DESC LIMIT ?"),
-            {QStringLiteral("%1%2%1").arg(QStringLiteral("%"), shortestWord), topN});
+            "FROM memories WHERE status='active' AND (%1) "
+            "ORDER BY importance DESC, updated_at DESC LIMIT ?").arg(conds.join(QStringLiteral(" AND "))),
+            binds);
         for (const auto& h : hits)
             recordAccess(h.id);
         return hits;
@@ -194,13 +216,13 @@ QVector<MemoryManager::MemoryRecord> MemoryManager::retrieve(const QString& rawQ
 qint64 MemoryManager::addSessionSummary(const QString& content) {
     const qint64 id = addMemory(QStringLiteral("session_summary"), content, 0.6);
     // FIFO 上限 50：超出时最旧摘要降 importance（规格 6：合并进 L3 或降 importance；v1 取降级）。
-    // 同秒内 created_at 会打平（时间统一 unix 秒），必须加 id 决胜保证稳定顺序
-    const auto rows = m_db->query(QStringLiteral(
-        "SELECT id FROM memories WHERE type='session_summary' ORDER BY updated_at ASC, id ASC LIMIT -1 OFFSET 50"), {});
-    for (const auto& row : rows) {
-        m_db->execute(QStringLiteral("UPDATE memories SET importance=0.2 WHERE id=?"),
-                      {row.value("id").toLongLong()});
-    }
+    // 同秒内 created_at 会打平（时间统一 unix 秒），必须加 id 决胜保证稳定顺序。
+    // 单条 UPDATE … IN (子查询)：隐式事务、只写溢出条目——逐条 UPDATE 是 O(n) 全表写且未事务化，
+    // 中途崩溃会留下"部分降级"的不一致
+    m_db->execute(QStringLiteral(
+        "UPDATE memories SET importance=0.2 WHERE type='session_summary' AND id IN ("
+        "SELECT id FROM memories WHERE type='session_summary' "
+        "ORDER BY updated_at ASC, id ASC LIMIT -1 OFFSET 50)"), {});
     return id;
 }
 

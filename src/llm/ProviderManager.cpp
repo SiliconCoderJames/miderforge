@@ -3,6 +3,7 @@
 #include "util/AppDirs.h"
 #include "util/Dpapi.h"
 #include "util/Log.h"
+#include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QJsonArray>
@@ -194,9 +195,32 @@ bool ProviderManager::switchToFailover(const QString& reason) {
     if (auto lg = logutil::logger())
         lg->warn("故障转移：{} → {}（{}）", m_active.toStdString(), backup->name.toStdString(),
                  reason.toStdString());
+    m_primaryName = m_active; // 记住主供应商，供冷却回切
+    m_failoverSince = QDateTime::currentSecsSinceEpoch();
     m_active = backup->name;
     m_failedOver = true;
     m_health[m_active] = Health::Unknown;
+    const bool ok = writeJson();
+    emit providerChanged();
+    return ok;
+}
+
+bool ProviderManager::maybeRestorePrimary(int cooldownSec) {
+    // 故障转移不能是单行道：冷却期过后切回主供应商。切换机制保持待命——
+    // 主供应商仍故障时会再次触发 switchToFailover，最坏代价是失败一轮重试
+    if (!m_failedOver || m_primaryName.isEmpty())
+        return false;
+    if (QDateTime::currentSecsSinceEpoch() - m_failoverSince < cooldownSec)
+        return false;
+    if (!provider(m_primaryName) || !provider(m_primaryName)->configured)
+        return false;
+    if (auto lg = logutil::logger())
+        lg->info("故障转移冷却期已过，回切主供应商：{} → {}", m_active.toStdString(),
+                 m_primaryName.toStdString());
+    m_active = m_primaryName;
+    m_primaryName.clear();
+    m_failedOver = false;
+    m_failoverSince = 0;
     const bool ok = writeJson();
     emit providerChanged();
     return ok;

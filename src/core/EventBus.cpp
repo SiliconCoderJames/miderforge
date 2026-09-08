@@ -11,6 +11,8 @@ namespace miderforge {
 
 namespace {
 constexpr int kMaxInMemory = 2000;
+// 锁层级纪律：本 mutex 只允许【向外】获取 Database::m_writeMutex（append → executeInsert/execute），
+// 任何反向嵌套（持 Database 锁时再 append）都会锁序倒置死锁（Coffman）。当前无反向路径，新增代码必须维持此方向
 static QMutex s_mutex; // append 可能来自任意线程（工具在嵌套循环/工作线程执行）
 } // namespace
 

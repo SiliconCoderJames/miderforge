@@ -76,6 +76,14 @@ int main(int argc, char* argv[]) {
     if (!active || !active->configured) {
         FirstRunWizard wizard(&providers);
         wizard.exec();
+        active = providers.activeProvider();
+        if (!active || !active->configured) {
+            // 向导未完成配置不进主循环：半配置状态下 GUI 起来后每次发消息都会失败，状态混乱
+            QMessageBox::information(nullptr, QStringLiteral("Miderforge"),
+                                     QStringLiteral("尚未完成大模型配置，Miderforge 已退出。"
+                                                    "下次启动将重新进入配置向导。"));
+            return 0;
+        }
     }
 
     // 工具注册表（v1 全集 7 工具）+ 事件审计 + Agent 循环
