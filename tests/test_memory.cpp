@@ -99,6 +99,40 @@ TEST_CASE("LIKE 兜底多词 AND：两个短词同时命中才召回") {
     CHECK(hits.first().content.contains(QStringLiteral("热键")));
 }
 
+TEST_CASE("L2 淘汰评分化：高价值旧摘要不被 FIFO 挤掉（评分保留 hot 席位）") {
+    MemFixture f;
+    qint64 valuableId = 0;
+    for (int i = 0; i < 50; ++i) {
+        const qint64 id = f.mem->addSessionSummary(QStringLiteral("普通摘要 %1").arg(i));
+        if (i == 0)
+            valuableId = id; // 最旧的一条
+    }
+    // 模拟一条被晋升为高价值（0.9）的旧摘要（实际场景：合并进 L1/被标重视）
+    REQUIRE(f.db.execute(QStringLiteral("UPDATE memories SET importance=0.9 WHERE id=?"),
+                         {valuableId}));
+    // 第 51 条触发淘汰：51 抢 50 个 hot 席位
+    f.mem->addSessionSummary(QStringLiteral("新来的第 51 条摘要"));
+
+    const auto all = f.mem->listAll(QStringLiteral("session_summary"));
+    REQUIRE(all.size() == 51);
+    int hot = 0;
+    int demoted = 0;
+    bool valuableSurvived = false;
+    for (const auto& r : all) {
+        if (r.importance > 0.5) {
+            ++hot;
+            if (r.id == valuableId)
+                valuableSurvived = true;
+        } else {
+            ++demoted;
+        }
+    }
+    CHECK(hot == 50);
+    CHECK(demoted == 1);
+    // FIFO 会挤掉最旧的第 1 条；评分制下它 importance 最高，被挤掉的应是评分最低的旧条目
+    CHECK(valuableSurvived);
+}
+
 TEST_CASE("综合评分：高重要度+新近条目排前；归档条目不召回") {
     MemFixture f;
     f.mem->addMemory(QStringLiteral("coding_pref"), QStringLiteral("缩进风格：空格 4 宽。"), 0.9);

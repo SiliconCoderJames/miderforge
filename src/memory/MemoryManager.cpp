@@ -251,14 +251,16 @@ QVector<MemoryManager::MemoryRecord> MemoryManager::retrieve(const QString& rawQ
 
 qint64 MemoryManager::addSessionSummary(const QString& content) {
     const qint64 id = addMemory(QStringLiteral("session_summary"), content, 0.6);
-    // FIFO 上限 50：超出时最旧摘要降 importance（规格 6：合并进 L3 或降 importance；v1 取降级）。
-    // 同秒内 created_at 会打平（时间统一 unix 秒），必须加 id 决胜保证稳定顺序。
-    // 单条 UPDATE … IN (子查询)：隐式事务、只写溢出条目——逐条 UPDATE 是 O(n) 全表写且未事务化，
-    // 中途崩溃会留下"部分降级"的不一致
+    // 淘汰评分化（M4.5 后续项）：50 条 hot 名额按 importance×时间衰减 评分保留，
+    // 落选者降权至 0.2（降权单调不回升：0.2 者不参与 hot 竞争）。
+    // 评分公式与 L3 综合评分同源（半衰期 30 天）；分数打平时按 updated_at/id 降序决胜，
+    // 退化为 FIFO（保最新），与旧语义兼容。单条 UPDATE … IN (子查询)：隐式事务、只写溢出条目
     m_db->execute(QStringLiteral(
-        "UPDATE memories SET importance=0.2 WHERE type='session_summary' AND id IN ("
-        "SELECT id FROM memories WHERE type='session_summary' "
-        "ORDER BY updated_at ASC, id ASC LIMIT -1 OFFSET 50)"), {});
+        "UPDATE memories SET importance=0.2 WHERE type='session_summary' AND status='active' "
+        "AND importance > 0.2 AND id NOT IN ("
+        "SELECT id FROM memories WHERE type='session_summary' AND status='active' AND importance > 0.2 "
+        "ORDER BY importance * pow(0.5, (strftime('%s','now') - updated_at) / 2592000.0) DESC, "
+        "updated_at DESC, id DESC LIMIT 50)"), {});
     return id;
 }
 
