@@ -16,6 +16,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QRegularExpression>
+#include <QSet>
 #include <QUrl>
 #include <utility>
 #include <spdlog/spdlog.h>
@@ -347,13 +348,22 @@ QString AgentLoop::buildSystemPrompt() {
         }
     }
 
-    // 可用技能：name+description 常驻列表（渐进披露：全文经 read_skill 工具加载）
+    // 可用技能：name+description 常驻列表（渐进披露：全文经 read_skill 工具加载）。
+    // 跨层预取：与目标最相关的技能标 ⭐ 前排（注意力预取，不全文注入）
     if (m_deps.skills) {
         const auto skills = m_deps.skills->search(QString(), 20);
         if (!skills.isEmpty()) {
-            prompt += QStringLiteral("\n===== 可用技能（详情用 read_skill 加载） =====\n");
-            for (const auto& s : skills)
+            QSet<QString> prefetchNames;
+            const auto relevant = m_deps.skills->searchRelevant(m_goal, 3);
+            for (const auto& s : relevant)
+                prefetchNames.insert(s.name);
+            prompt += QStringLiteral(
+                "\n===== 可用技能（详情用 read_skill 加载；⭐ 为与当前目标疑似相关，可优先加载） =====\n");
+            for (const auto& s : relevant)
                 if (s.status == QLatin1String("active"))
+                    prompt += QStringLiteral("- ⭐ %1：%2\n").arg(s.name, s.description);
+            for (const auto& s : skills)
+                if (s.status == QLatin1String("active") && !prefetchNames.contains(s.name))
                     prompt += QStringLiteral("- %1：%2\n").arg(s.name, s.description);
         }
     }

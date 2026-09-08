@@ -148,7 +148,7 @@ Miderforge/
 | **M4.5** | 记忆分层强化：一致性失效 / L1 容量纪律 / 增量 token 记账 | ✅ |
 | **M5** | 中断分级：四级中断模型（系统/熔断/用户/操作级）、暂停恢复、取消令牌传导、checkpoint 续跑 | ✅ |
 
-> 单元测试 77 个用例（doctest，只依赖 mider_core、可完全脱离 GUI 运行）全部通过。涉及真实 API Key / SMTP 授权码的端到端项请在配置后自行复核，明细见 [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md)。
+> 单元测试 78 个用例（doctest，只依赖 mider_core、可完全脱离 GUI 运行）全部通过。涉及真实 API Key / SMTP 授权码的端到端项请在配置后自行复核，明细见 [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md)。
 
 ## 🤝 贡献
 

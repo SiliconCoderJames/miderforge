@@ -172,8 +172,53 @@ QVector<SkillManager::SkillMeta> SkillManager::search(const QString& query, int 
     return out;
 }
 
-QString SkillManager::loadSkillMd(const QString& name) const {
-    QFile f(m_dir + QLatin1Char('/') + sanitizeSkillName(name) + QStringLiteral("/SKILL.md"));
+QVector<SkillManager::SkillMeta> SkillManager::searchRelevant(const QString& goal, int limit) const {
+    // 跨层预取（存储体系：任务开始时把最相关技能"预取"到注意力前排）。
+    // 目标原文整句短语匹配几乎必空（trigram 短语要求连续出现），必须拆词 OR；
+    // 中文无空格连字再拆 4 字滑窗兜底召回；只返回 active（废弃/待审查技能不预取）
+    QStringList terms;
+    const auto addTerm = [&terms](const QString& w) {
+        if (w.length() < 2 || terms.size() >= 12)
+            return;
+        QString escaped = w;
+        escaped.replace(QLatin1Char('"'), QStringLiteral("\"\""));
+        terms << QStringLiteral("\"%1\"").arg(escaped);
+    };
+    const QStringList words =
+        goal.split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
+    for (const QString& w : words) {
+        addTerm(w);
+        // 长中文连字（无空格分词）：4 字滑窗，最多 4 片，避免术语整串不命中
+        if (w.length() > 6 && terms.size() < 12) {
+            for (int i = 0; i + 4 <= w.length() && i < 16; i += 4)
+                addTerm(w.mid(i, 4));
+        }
+    }
+    if (terms.isEmpty())
+        return {};
+
+    QVector<SkillMeta> out;
+    const QString sql = QStringLiteral(
+        "SELECT s.id,s.name,s.description,s.path,s.status,s.usage_count,s.success_count,s.avg_rounds,s.version "
+        "FROM skills_fts f JOIN skills s ON s.id=f.rowid "
+        "WHERE skills_fts MATCH ? AND s.status='active' ORDER BY rank LIMIT ?");
+    for (const auto& row : m_db->query(sql, {terms.join(QStringLiteral(" OR ")), limit})) {
+        SkillMeta m;
+        m.id = row.value("id").toLongLong();
+        m.name = row.value("name").toString();
+        m.description = row.value("description").toString();
+        m.path = row.value("path").toString();
+        m.status = row.value("status").toString();
+        m.usageCount = row.value("usage_count").toInt();
+        m.successCount = row.value("success_count").toInt();
+        m.avgRounds = row.value("avg_rounds").toDouble();
+        m.version = row.value("version").toInt();
+        out.push_back(std::move(m));
+    }
+    return out;
+}
+
+QString SkillManager::loadSkillMd(const QString& name) const {    QFile f(m_dir + QLatin1Char('/') + sanitizeSkillName(name) + QStringLiteral("/SKILL.md"));
     if (!f.open(QIODevice::ReadOnly))
         return QString();
     return QString::fromUtf8(f.readAll());

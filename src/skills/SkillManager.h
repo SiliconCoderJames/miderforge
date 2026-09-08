@@ -39,6 +39,9 @@ public:
     QVector<SkillMeta> listAll() const;
     // FTS5 检索（任务开始时注入「可用技能」段）；空查询返回全部 active
     QVector<SkillMeta> search(const QString& query, int limit = 10) const;
+    // 跨层预取（存储体系）：把任务目标拆词 OR 检索技能库 FTS，返回最相关的 active 技能。
+    // 只做注意力标注、不全文注入（保持渐进披露）；长中文连字拆出 4 字滑窗提升召回
+    QVector<SkillMeta> searchRelevant(const QString& goal, int limit = 3) const;
     QString loadSkillMd(const QString& name) const;
 
     // ---- 使用统计：usage_count+1，成败计入 success_count；成功率<30% 且使用≥5 → 标记待审查 ----

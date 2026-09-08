@@ -87,3 +87,24 @@ TEST_CASE("标记废弃=状态标记，不物理删除") {
     CHECK(s.id > 0);
     CHECK(s.status == QString("deprecated"));
 }
+
+TEST_CASE("跨层预取：searchRelevant 按目标词命中相关技能，废弃技能不预取") {
+    SkillFixture f;
+    REQUIRE(f.skills->writeSkill(QStringLiteral("cpp-cmake-qt-build"),
+                                 QStringLiteral("配置 CMake 工程并构建 Qt 桌面程序"),
+                                 QStringLiteral("## 适用场景\nC++ 项目构建\n")));
+    REQUIRE(f.skills->writeSkill(QStringLiteral("email-smtp-notify"),
+                                 QStringLiteral("配置 SMTP 发送任务完成邮件"),
+                                 QStringLiteral("## 适用场景\n通知触达\n")));
+    // 空目标不预取
+    CHECK(f.skills->searchRelevant(QStringLiteral(""), 3).isEmpty());
+
+    // 目标与 CMake 技能高度相关（长中文连字走 4 字滑窗 + 英文词直配）
+    const auto hits = f.skills->searchRelevant(QStringLiteral("帮我配置CMake工程并构建Qt桌面程序"), 3);
+    REQUIRE_FALSE(hits.empty());
+    CHECK(hits.first().name == QString("cpp-cmake-qt-build"));
+
+    // 废弃技能即使目标命中也不返回（渐进披露只面向可用技能）
+    REQUIRE(f.skills->markDeprecated(QStringLiteral("email-smtp-notify")));
+    CHECK(f.skills->searchRelevant(QStringLiteral("SMTP 邮件通知"), 3).isEmpty());
+}
