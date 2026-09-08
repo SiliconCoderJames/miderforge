@@ -64,12 +64,12 @@
 - [x] token 记账改增量口径（本轮新增输入+输出），消除 O(N²) 超线性（代码审查验证）(2026-09-08)
 - [x] 每轮检索查询随模型反思演化，不再 25 轮注入同一批记忆（代码审查验证）(2026-09-08)
 
-## M5：中断分级（已立项，设计定稿待实施）
+## M5：中断分级（实施中）
 
 四级中断模型（P0 系统级 / P1 熔断级 / P2 用户级 / P3 操作级）+ 两轴分类（可恢复性 × 协作性）：
 
-- [ ] 终态语义统一：tasks 表五态（succeeded/failed/halted/cancelled/paused）+ UI 语义色
-- [ ] 取消令牌贯穿工具层：run_command 执行中可被取消（QProcess kill / curl 中止已具备硬件）
+- [x] 终态语义统一：tasks 表五态落库（succeeded/failed/halted/cancelled/paused），取消经终态覆写不再误记为 failed；UI 语义色补 halted/paused (2026-09-08)
+- [x] P3 取消令牌贯穿工具层：ToolRegistry 原子令牌 → run_command 入口快检 + 150ms 轮询 kill / http_fetch 进度回调中止 → 工具批收尾消费判停（单测覆盖令牌语义与入口快检）(2026-09-08)
 - [ ] P2 暂停/恢复：轮边界挂起状态机，m_history 保持可续
 - [ ] P0 接入 OS 会话信号（WM_QUERYENDSESSION）：存检查点后有界退出
 - [ ] checkpoint 续跑：崩溃恢复从"重新入队重跑"升级为"断点续跑"

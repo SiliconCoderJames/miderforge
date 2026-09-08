@@ -43,3 +43,28 @@ TEST_CASE("run_command：非白名单命令被工具层拒绝（纵深防御第�
     CHECK_FALSE(res.ok);
     CHECK(res.text.contains(QStringLiteral("白名单")));
 }
+
+TEST_CASE("M5 P3：取消令牌语义（请求→查询→消费复位）") {
+    ToolRegistry reg;
+    CHECK_FALSE(reg.toolCancelRequested());
+    reg.requestToolCancel();
+    CHECK(reg.toolCancelRequested());
+    CHECK(reg.consumeToolCancel());
+    CHECK_FALSE(reg.toolCancelRequested());
+    CHECK_FALSE(reg.consumeToolCancel()); // 二次消费为否（标志已复位）
+}
+
+TEST_CASE("M5 P3：run_command 入口快检响应取消令牌") {
+    ToolRegistry reg;
+    miderforge::CommandTools::registerAll(reg);
+    miderforge::AppContext::instance().workspaceRoot = QStringLiteral(".");
+
+    reg.requestToolCancel();
+    const auto res = reg.execute(QStringLiteral("run_command"),
+                                 QStringLiteral("{\"command\": \"git --version\"}"));
+    CHECK_FALSE(res.ok);
+    CHECK(res.text.contains(QStringLiteral("取消")));
+    // AgentLoop 在工具批收尾时消费判停；工具本身只读不消费
+    CHECK(reg.toolCancelRequested());
+    CHECK(reg.consumeToolCancel());
+}

@@ -105,6 +105,10 @@ void AgentLoop::start(const QString& goal, qint64 taskId) {
     m_lastReflection.clear();
     m_injectedMemories.clear();
     m_lastPromptTokens = 0;
+    m_toolCancelSeen = false;
+    m_terminalStatus.clear();
+    if (m_deps.tools)
+        m_deps.tools->consumeToolCancel(); // 防御：清掉上一任务可能残留的取消标志
     m_running = true;
     m_breaker = Breaker(AppContext::instance().limits); // 每任务独立预算（设置页可改）
     m_gate.resetSessionGrants(); // 决策: "总是允许"随任务失效（会话粒度的保守实现）
@@ -141,6 +145,7 @@ void AgentLoop::cancel() {
         // 授权挂起时取消：直接判停
         m_running = false;
         m_pendingCallId.clear();
+        m_terminalStatus = QStringLiteral("cancelled");
         setState(State::Failed);
         persistTaskEnd(false, QString(), QStringLiteral("已手动停止"));
         if (m_deps.events)
@@ -149,6 +154,10 @@ void AgentLoop::cancel() {
         emit loopFinished(false, QStringLiteral("已手动停止"));
         return;
     }
+    // M5 P3：工具执行中取消原来到不了工具层（此路径上 chat 并不在跑，cancel 是空操作）——
+    // 先请求在跑工具中止，工具批收尾时检测到取消即整体判停
+    if (m_deps.tools)
+        m_deps.tools->requestToolCancel();
     m_deps.chat->cancel();
 }
 
@@ -287,6 +296,7 @@ void AgentLoop::onStreamFinished(const StreamResult& result) {
 
     if (result.aborted) {
         m_running = false;
+        m_terminalStatus = QStringLiteral("cancelled");
         setState(State::Failed);
         persistTaskEnd(false, QString(), QStringLiteral("已手动停止"));
         if (m_deps.events)
@@ -386,6 +396,8 @@ void AgentLoop::onStreamFinished(const StreamResult& result) {
             return;
         }
         executeToolCall(callId, tc.name, tc.arguments);
+        if (m_toolCancelSeen)
+            break; // 用户已取消：不再执行本批剩余工具，收尾统一判停
     }
     finishToolBatch();
 }
@@ -448,6 +460,9 @@ void AgentLoop::executeToolCall(const QString& callId, const QString& name, cons
     } else {
         resultText = QStringLiteral("错误：工具注册表不可用");
     }
+    // M5 P3：消费取消令牌（工具响应与否都消费——用户在本任务内按了取消就要停）
+    if (m_deps.tools && m_deps.tools->consumeToolCancel())
+        m_toolCancelSeen = true;
     // 上下文护栏：回填 LLM 的结果必须截断（1MB 文件全文 ≈ 25 万 token，一发吃穿任务预算）
     resultText = truncateToolResult(resultText);
     emit toolCallFinished(callId, ok, resultText, ms);
@@ -492,6 +507,12 @@ void AgentLoop::executeToolCall(const QString& callId, const QString& name, cons
 void AgentLoop::finishToolBatch() {
     if (!m_running)
         return;
+
+    // M5 P3：用户取消优先于一切熔断——整体判停为 cancelled
+    if (m_toolCancelSeen) {
+        stopForUserCancel();
+        return;
+    }
 
     // ---- 三重熔断保险 ----
     const Breaker::Reason reason = m_breaker.check();
@@ -701,15 +722,30 @@ void AgentLoop::acceptSkillProposal(const QString& name, const QString& descript
     }
 }
 
+void AgentLoop::stopForUserCancel() {
+    m_running = false;
+    m_terminalStatus = QStringLiteral("cancelled");
+    setState(State::Failed);
+    persistTaskEnd(false, QString(), QStringLiteral("已手动停止"));
+    if (m_deps.events)
+        m_deps.events->append(QStringLiteral("task_status"), m_taskId,
+                              QJsonObject{{"status", "cancelled"}});
+    emit loopFinished(false, QStringLiteral("已手动停止"));
+}
+
 void AgentLoop::persistTaskEnd(bool ok, const QString& resultSummary, const QString& failureReason) {
     if (!m_deps.db)
         return;
+    // M5-①终态语义：cancelled 覆写优先（用户取消 ≠ 失败），其余按结局推导
+    const QString status = !m_terminalStatus.isEmpty()
+                               ? m_terminalStatus
+                               : (ok ? QStringLiteral("succeeded")
+                                     : (m_state == State::Halted ? QStringLiteral("halted")
+                                                                 : QStringLiteral("failed")));
     m_deps.db->execute(QStringLiteral(
         "UPDATE tasks SET status=?, rounds_used=?, tokens_in=?, result_summary=?, failure_reason=?, finished_at=? "
         "WHERE id=?"),
-        {ok ? QStringLiteral("succeeded") : (m_state == State::Halted ? QStringLiteral("halted")
-                                                                     : QStringLiteral("failed")),
-         m_round, m_breaker.tokens(), resultSummary, failureReason,
+        {status, m_round, m_breaker.tokens(), resultSummary, failureReason,
          QDateTime::currentSecsSinceEpoch(), m_taskId});
 }
 

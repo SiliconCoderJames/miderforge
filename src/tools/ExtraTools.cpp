@@ -32,6 +32,12 @@ size_t writeToString(char* ptr, size_t size, size_t nmemb, void* userdata) {
     return total;
 }
 
+// M5 P3：取消令牌进度回调——传输期间每块数据都会路过这里，置 1 即中止
+int fetchProgressAbort(void* userdata, curl_off_t, curl_off_t, curl_off_t, curl_off_t) {
+    auto* reg = static_cast<const ToolRegistry*>(userdata);
+    return reg->toolCancelRequested() ? 1 : 0;
+}
+
 } // namespace
 
 bool checkFetchUrl(const QString& url, QString* pinnedIp, QString* err) {
@@ -105,7 +111,12 @@ void ExtraTools::registerAll(ToolRegistry& reg) {
                        }},
         {"required", QJsonArray{"url"}},
     };
-    http.handler = [](const QJsonObject& args, QString* err) -> QString {
+    http.handler = [&reg](const QJsonObject& args, QString* err) -> QString {
+        // M5 P3：取消令牌入口快检
+        if (reg.toolCancelRequested()) {
+            if (err) *err = QStringLiteral("已被用户取消");
+            return envelope(QJsonObject{{"ok", false}, {"cancelled", true}});
+        }
         QString currentUrl = args.value("url").toString().trimmed();
 
         CURL* curl = curl_easy_init();
@@ -147,6 +158,9 @@ void ExtraTools::registerAll(ToolRegistry& reg) {
             curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, &writeToString);
             curl_easy_setopt(curl, CURLOPT_WRITEDATA, &body);
             curl_easy_setopt(curl, CURLOPT_RESOLVE, resolveList);
+            curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, &fetchProgressAbort);
+            curl_easy_setopt(curl, CURLOPT_XFERINFODATA, &reg);
+            curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
             curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
             curl_easy_setopt(curl, CURLOPT_TIMEOUT, 15L);
             curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L); // 证书校验永不关闭
@@ -177,6 +191,11 @@ void ExtraTools::registerAll(ToolRegistry& reg) {
         }
         curl_easy_cleanup(curl);
 
+        // M5 P3：进度回调中止 → 判定为用户取消（区别于网络错误）
+        if (rc == CURLE_ABORTED_BY_CALLBACK && reg.toolCancelRequested()) {
+            if (err) *err = QStringLiteral("已被用户取消");
+            return envelope(QJsonObject{{"ok", false}, {"cancelled", true}});
+        }
         if (rc != CURLE_OK) {
             if (err) *err = QStringLiteral("抓取失败：%1").arg(QString::fromLatin1(curl_easy_strerror(rc)));
             return {};

@@ -50,6 +50,8 @@ QVariant TasksModel::data(const QModelIndex& idx, int role) const {
             {QStringLiteral("running"), QStringLiteral("运行中")},
             {QStringLiteral("succeeded"), QStringLiteral("成功")},
             {QStringLiteral("failed"), QStringLiteral("失败")},
+            {QStringLiteral("halted"), QStringLiteral("已熔断")},
+            {QStringLiteral("paused"), QStringLiteral("已暂停")},
             {QStringLiteral("cancelled"), QStringLiteral("已取消")}};
         return names.value(r.status, r.status);
     }
@@ -59,6 +61,8 @@ QVariant TasksModel::data(const QModelIndex& idx, int role) const {
             {QStringLiteral("running"), QColor(0x4a, 0x8c, 0xff)},
             {QStringLiteral("succeeded"), QColor(0x57, 0xab, 0x5a)},
             {QStringLiteral("failed"), QColor(0xe0, 0x6c, 0x60)},
+            {QStringLiteral("halted"), QColor(0xe0, 0xa0, 0x40)},
+            {QStringLiteral("paused"), QColor(0xb0, 0x8c, 0xd0)},
             {QStringLiteral("cancelled"), QColor(0x9d, 0xa2, 0xa6)}};
         return colors.value(r.status, QColor(0xdc, 0xdf, 0xe4));
     }

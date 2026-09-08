@@ -95,6 +95,7 @@ private:
     void onFinalizeFinished(const StreamResult& result);
     void finalizeTaskWrites(const QJsonObject& parsed); // 收尾产物落库（摘要/L1/教训）
     void persistTaskEnd(bool ok, const QString& resultSummary, const QString& failureReason);
+    void stopForUserCancel(); // M5 P3：工具批中检测到取消 → 整体判停为 cancelled
     QString buildSystemPrompt();
     QString buildFinalizePrompt(bool ok, const QString& summaryOrReason) const;
     QString classifyTarget(const QString& toolName, const QString& argsJson, PermissionGate::Kind* kind) const;
@@ -125,6 +126,8 @@ private:
     int m_transportFailures = 0;    // 连续传输级失败（故障转移判定）
     bool m_failedOver = false;      // 本任务已切换供应商
     qint64 m_lastPromptTokens = 0;  // 上一轮流prompt用量（增量记账：只收新增输入，避免重发 history 造成 O(N²) 口径）
+    bool m_toolCancelSeen = false;  // M5 P3：工具响应取消令牌后置位，工具批收尾时判停
+    QString m_terminalStatus;       // M5-①终态覆写（"cancelled"），空=按 ok/m_state 推导
 
     // 待授权工具调用（AwaitingPermission 状态下挂起）
     QString m_pendingCallId;

@@ -101,7 +101,12 @@ void CommandTools::registerAll(ToolRegistry& reg) {
                        }},
         {"required", QJsonArray{"command"}},
     };
-    def.handler = [](const QJsonObject& args, QString* err) -> QString {
+    def.handler = [&reg](const QJsonObject& args, QString* err) -> QString {
+        // M5 P3：取消令牌入口快检——用户已取消则不启动子进程
+        if (reg.toolCancelRequested()) {
+            if (err) *err = QStringLiteral("已被用户取消");
+            return envelope(QJsonObject{{"ok", false}, {"cancelled", true}});
+        }
         const QString command = args.value("command").toString().trimmed();
         int timeoutSec = int(args.value("timeout_sec").toInt(120));
         timeoutSec = qBound(1, timeoutSec, 600);
@@ -145,6 +150,7 @@ void CommandTools::registerAll(ToolRegistry& reg) {
         QEventLoop loop;
         QTimer timeout;
         timeout.setSingleShot(true);
+        bool cancelledByUser = false;
         QObject::connect(&proc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
                          &loop, &QEventLoop::quit);
         QObject::connect(&timeout, &QTimer::timeout, &loop, [&] {
@@ -152,8 +158,20 @@ void CommandTools::registerAll(ToolRegistry& reg) {
             loop.quit();
         });
         QObject::connect(&proc, &QProcess::errorOccurred, &loop, [&] { loop.quit(); });
+        // M5 P3：取消令牌轮询（150ms）——工具执行中用户取消原来到不了这里，现在直达 kill
+        QTimer cancelPoll;
+        cancelPoll.setInterval(150);
+        QObject::connect(&cancelPoll, &QTimer::timeout, &loop, [&] {
+            if (reg.toolCancelRequested()) {
+                cancelledByUser = true;
+                proc.kill();
+                loop.quit();
+            }
+        });
         timeout.start(timeoutSec * 1000);
+        cancelPoll.start();
         loop.exec(QEventLoop::ExcludeUserInputEvents);
+        cancelPoll.stop();
 
         const bool timedOut = clock.elapsed() >= timeoutSec * 1000 && proc.state() != QProcess::NotRunning;
         if (timedOut)
@@ -174,9 +192,11 @@ void CommandTools::registerAll(ToolRegistry& reg) {
         const QString text = QString::fromUtf8(merged);
 
         return envelope(QJsonObject{
-            {"ok", proc.exitStatus() == QProcess::NormalExit && proc.exitCode() == 0 && !timedOut},
+            {"ok", proc.exitStatus() == QProcess::NormalExit && proc.exitCode() == 0 && !timedOut
+                       && !cancelledByUser},
             {"exit_code", proc.exitCode()},
             {"timed_out", timedOut},
+            {"cancelled", cancelledByUser},
             {"duration_ms", qint64(clock.elapsed())},
             {"output", text},
         });
