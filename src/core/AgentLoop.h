@@ -61,6 +61,9 @@ public:
     void pause();
     void resume();
     bool isPaused() const { return m_paused; }
+    // M5 P0：进程退出前的有界收束——在跑任务放回 queued（下次启动恢复重新入队），
+    // 并请求在跑工具快速中止；不发 loopFinished（UI 即将销毁）
+    void shutdownRequeue();
 
     // 权限卡片回调：decision 0=允许一次 1=本会话总是允许 2=拒绝
     void resumePermission(const QString& callId, int decision);

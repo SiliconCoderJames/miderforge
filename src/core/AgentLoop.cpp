@@ -203,6 +203,23 @@ void AgentLoop::enterPaused() {
     emit taskPaused();
 }
 
+void AgentLoop::shutdownRequeue() {
+    if (!m_running)
+        return;
+    m_running = false;
+    m_pauseRequested.store(false);
+    // 请求在跑工具快速中止（取消令牌），让嵌套工具循环尽快返回、退出不拖过 10s 有界等待
+    if (m_deps.tools)
+        m_deps.tools->requestToolCancel();
+    if (m_deps.db)
+        m_deps.db->execute(QStringLiteral("UPDATE tasks SET status='queued' WHERE id=?"), {m_taskId});
+    if (m_deps.events)
+        m_deps.events->append(QStringLiteral("task_status"), m_taskId,
+                              QJsonObject{{"status", "interrupted"}});
+    if (auto lg = logutil::logger())
+        lg->warn("退出收束：任务 #{} 已放回队列，下次启动自动恢复", m_taskId);
+}
+
 void AgentLoop::runRound() {
     m_breaker.beginRound();
     ++m_round;

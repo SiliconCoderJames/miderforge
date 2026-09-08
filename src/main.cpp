@@ -19,9 +19,11 @@
 #include "util/AppDirs.h"
 #include "util/Log.h"
 #include <QApplication>
+#include <QGuiApplication>
 #include <QLibraryInfo>
 #include <QLockFile>
 #include <QMessageBox>
+#include <QSessionManager>
 #include <QThread>
 #include <QTranslator>
 #include <spdlog/spdlog.h>
@@ -112,6 +114,12 @@ int main(int argc, char* argv[]) {
     Scheduler scheduler(&db, &loop);
     EmailNotifier mail(&events);
     mail.loadConfig();
+
+    // M5 P0：退出/系统会话结束时的有界收束——在跑任务放回 queued，请求工具快速中止。
+    // commitDataRequest 对应 Windows 的 WM_QUERYENDSESSION（关机/注销/重启）
+    const auto shutdownRequeue = [&loop] { loop.shutdownRequeue(); };
+    QObject::connect(&app, &QCoreApplication::aboutToQuit, shutdownRequeue);
+    QObject::connect(&app, &QGuiApplication::commitDataRequest, shutdownRequeue);
 
     MainWindow win(&providers, &loop, &events, &db, &memory, &skills, &mail);
     win.show();
