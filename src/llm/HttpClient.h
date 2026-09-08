@@ -52,6 +52,7 @@ private:
     std::atomic<bool> m_cancel{false};
     std::unique_ptr<SseParser> m_sse;
     QByteArray m_rawBody;      // 全量原始响应（错误体提取用，封顶 1MB）
+    bool m_rawBodyCapped = false; // 触顶告警只发一次
     QString m_lastErrorBody;
 };
 

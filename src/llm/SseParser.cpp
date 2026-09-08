@@ -5,6 +5,14 @@
 namespace miderforge {
 
 void SseParser::feed(const char* data, size_t len) {
+    // 部分代理/网关会在响应首块前置 UTF-8 BOM：剥掉，否则首个 "data:" 行匹配失败、首帧丢失
+    if (m_buffer.isEmpty() && len >= 3
+        && static_cast<unsigned char>(data[0]) == 0xEF
+        && static_cast<unsigned char>(data[1]) == 0xBB
+        && static_cast<unsigned char>(data[2]) == 0xBF) {
+        data += 3;
+        len -= 3;
+    }
     m_buffer.append(data, int(len));
 }
 

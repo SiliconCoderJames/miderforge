@@ -47,8 +47,14 @@ size_t HttpClient::writeCallback(char* ptr, size_t size, size_t nmemb, void* use
     const size_t total = size * nmemb;
     if (self->m_cancel.load())
         return 0; // 返回 0 → curl 以 CURLE_WRITE_ERROR 中止传输
-    if (self->m_rawBody.size() < 1024 * 1024)
+    if (self->m_rawBody.size() < 1024 * 1024) {
         self->m_rawBody.append(ptr, int(total));
+    } else if (!self->m_rawBodyCapped) {
+        // 触顶只告警一次：静默截断会让上层拿到的"错误体"缺尾且无人知晓
+        self->m_rawBodyCapped = true;
+        if (auto lg = logutil::logger())
+            lg->warn("原始响应体超过 1MB 封顶，超出部分丢弃（错误体提取不完整）");
+    }
 
     // 累积缓冲、切完整帧后才发信号（禁止把半个 JSON 帧交给上层）
     self->m_sse->feed(ptr, total);
@@ -67,6 +73,7 @@ void HttpClient::executeStream(const Request& req) {
     m_cancel.store(false);
     m_sse->reset();
     m_rawBody.clear();
+    m_rawBodyCapped = false;
     m_lastErrorBody.clear();
 
     CurlGuard curl;

@@ -116,3 +116,23 @@ TEST_CASE("reset 清空全部状态") {
     CHECK(p.takeCompleteEvents().empty());
     CHECK(p.flushRemainder().empty());
 }
+
+TEST_CASE("UTF-8 BOM 前置的首帧不丢（部分代理/网关行为）") {
+    SseParser p;
+    // 字符串拼接断开十六进制转义：MSVC 会把 "\xEF\xBB\xBFda" 当作一个超范围转义
+    const char withBom[] = "\xEF\xBB\xBF" "data: first\n\n";
+    p.feed(withBom, strlen(withBom));
+    auto ev = p.takeCompleteEvents();
+    REQUIRE(ev.size() == 1);
+    CHECK(ev[0] == QString("first"));
+}
+
+TEST_CASE("BOM 只在缓冲区起点剥离，流中段出现按普通数据对待") {
+    SseParser p;
+    p.feed("data: x\n\n", 10);
+    const char withBom[] = "\xEF\xBB\xBF" "data: y\n\n";
+    p.feed(withBom, strlen(withBom));
+    auto ev = p.takeCompleteEvents();
+    REQUIRE(ev.size() == 1); // 带 BOM 的行不是合法 data 行，整块被忽略
+    CHECK(ev[0] == QString("x"));
+}

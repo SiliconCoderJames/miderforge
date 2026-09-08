@@ -5,6 +5,7 @@
 #include "util/Tokens.h"
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QRandomGenerator>
 #include <QUrl>
 #include <spdlog/spdlog.h>
 
@@ -33,7 +34,14 @@ ChatClient::ChatClient(QObject* parent) : QObject(parent) {
 ChatClient::~ChatClient() {
     m_retryTimer.stop();
     m_thread.quit();
-    m_thread.wait(); // 无超时：绝不删除仍在执行 curl 的对象（挂起比崩溃好排查）
+    if (!m_thread.wait(10000)) {
+        // 有界等待：卡死的 curl（如 DNS 悬挂）不再把整个进程拖成"无响应假死"。
+        // 放弃等待并故意泄漏线程与 HttpClient（进程退出时由 OS 回收），
+        // 绝不 delete 一个仍在别的线程执行 curl 的 QObject——那是必崩路径
+        if (auto lg = logutil::logger())
+            lg->critical("HTTP 线程 10s 未退出，放弃等待（退出时由系统回收）");
+        return;
+    }
     delete m_http;
     m_http = nullptr;
 }
@@ -181,10 +189,12 @@ void ChatClient::onFinished(int httpCode, const QString& curlError, const QStrin
     const bool clientError = httpCode >= 400 && !retriableStatus;
 
     if ((transportDead || retriableStatus) && m_retriesLeft > 0) {
-        // 断线/限流/服务端错误：指数退避后整体重发（1s → 2s）
+        // 断线/限流/服务端错误：指数退避 + 随机抖动后整体重发。
+        // 无上限的 2^n 会失控、无抖动的整秒重试会撞供应商限流窗口（backoff + jitter）
         --m_retriesLeft;
         ++m_retryIndex;
-        const int backoffMs = 1000 * (1 << (m_retryIndex - 1));
+        const int baseMs = qMin(1000 * (1 << (m_retryIndex - 1)), 8000); // 退避上限 8s
+        const int backoffMs = baseMs + QRandomGenerator::global()->bounded(qMax(1, baseMs / 4));
         emit streamReset(); // UI 清空本次部分渲染
         resetAccumulators();
         if (auto lg = logutil::logger())
