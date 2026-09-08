@@ -79,7 +79,9 @@ git ls-files | findstr /i "key secret token env pass"
 
 ## 4. 沙箱与权限
 
-- 权限三档：Suggest（默认）/ Auto Edit（工作区内写自动）/ Full Access（沙箱内全自动，网络白名单放行）
-- 命令白名单（可配置）：cmake / ninja / msbuild / git / cl / clang-format 等
-- 永不解禁：credential/secret/.env/token/id_rsa 路径、工作区外递归删除、磁盘级操作、git push 到保护分支
-- 子进程由 Job Object 管理（内存上限 2GB、单命令 120s 超时、退出连带终止），环境变量显式白名单构造（不继承父进程，防 API Key 泄漏）
+- 权限三档：Suggest（默认）/ Auto Edit（工作区内写自动）/ Full Access（命令/网络全自动；**写路径与 Auto Edit 同界，仅限工作区内**）
+- 命令白名单（可配置）：cmake / ninja / msbuild / git / cl / clang-format 等；白名单内的破坏性 git（reset --hard / clean -f）同样硬拦截
+- 永不解禁：credential/secret/token/password 等敏感名（组件级词边界匹配，不误伤 Tokens.cpp 这类正常文件名）、.env 家族、密钥证书（.pem/.p12/.pfx）、敏感目录（.ssh/.aws/.kube/secrets/credentials）、工作区外递归删除、磁盘级操作、git push 到保护分支
+- SSRF 防护：http_fetch 仅公网地址——DNS 解析后按 IP 公网性判定并钉住解析结果，重定向逐跳重新校验
+- 子进程由 Job Object 管理（内存上限 2GB、单命令 120s 超时、退出连带终止），环境变量显式白名单构造（不继承父进程；身份变量 USERNAME/HOMEDRIVE/HOMEPATH/PROGRAMDATA 不透传）
+- 中断分级（M5）：暂停/恢复在轮边界安全点生效；工具执行中取消经取消令牌直达进程 kill；退出/关机时在跑任务自动放回队列，重启后从断点续跑（tasks.context_json）
