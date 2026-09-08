@@ -56,3 +56,20 @@
 同时记录两条锁层级/线程纪律约束（防止后续扩展引入回归）：
 - **锁顺序**：`EventBus::s_mutex → Database::m_writeMutex`，任何代码不得反向嵌套（EventBus.cpp / Database.h 注释）。
 - **AppContext**：`todayTokens` 已原子化；其余成员仍约定 GUI 线程读写，引入工作线程前需整体审查（AppContext.h 注释）。
+
+## M4.5：记忆分层强化（存储体系管理）——设计文档见 docs/MEMORY-DESIGN.md
+
+- [x] 一致性失效：收尾改写 L1 时归档被新知覆盖的 L3 旧条目；编号白名单校验防幻觉（filterSupersededIds/archiveMemories 单测）(2026-09-08)
+- [x] L1 容量纪律：收尾提示词带 token 预算，超限写 l1_overflow 告警（代码审查验证）(2026-09-08)
+- [x] token 记账改增量口径（本轮新增输入+输出），消除 O(N²) 超线性（代码审查验证）(2026-09-08)
+- [x] 每轮检索查询随模型反思演化，不再 25 轮注入同一批记忆（代码审查验证）(2026-09-08)
+
+## M5：中断分级（已立项，设计定稿待实施）
+
+四级中断模型（P0 系统级 / P1 熔断级 / P2 用户级 / P3 操作级）+ 两轴分类（可恢复性 × 协作性）：
+
+- [ ] 终态语义统一：tasks 表五态（succeeded/failed/halted/cancelled/paused）+ UI 语义色
+- [ ] 取消令牌贯穿工具层：run_command 执行中可被取消（QProcess kill / curl 中止已具备硬件）
+- [ ] P2 暂停/恢复：轮边界挂起状态机，m_history 保持可续
+- [ ] P0 接入 OS 会话信号（WM_QUERYENDSESSION）：存检查点后有界退出
+- [ ] checkpoint 续跑：崩溃恢复从"重新入队重跑"升级为"断点续跑"
