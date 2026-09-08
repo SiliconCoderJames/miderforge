@@ -95,7 +95,7 @@ private:
     void onFinalizeFinished(const StreamResult& result);
     void finalizeTaskWrites(const QJsonObject& parsed); // 收尾产物落库（摘要/L1/教训）
     void persistTaskEnd(bool ok, const QString& resultSummary, const QString& failureReason);
-    QString buildSystemPrompt() const;
+    QString buildSystemPrompt();
     QString buildFinalizePrompt(bool ok, const QString& summaryOrReason) const;
     QString classifyTarget(const QString& toolName, const QString& argsJson, PermissionGate::Kind* kind) const;
     void handleTransportFailure(const QString& error, int httpCode); // M4：连续失败→故障转移
@@ -114,6 +114,9 @@ private:
     QString m_finalizeSummary;      // 结局摘要（熔断原因或最终答复）
     int m_finalizeRetries = 0;      // 收尾调用传输失败重试次数（上限 1，见 onStreamFailed）
     QString m_lastReflection;       // 模型最近一轮正文（后续轮次记忆检索的演化查询）
+    // 本任务实际注入过的 L3 记忆（id + 内容摘要）：收尾时交给 LLM 做"一致性失效"判定，
+    // 只有出现在这份清单里的编号才允许被归档（防幻觉编号误伤）
+    QVector<QPair<qint64, QString>> m_injectedMemories;
     int m_toolCallsThisTask = 0;    // 自沉淀判定：工具调用 ≥5 次且成功
     // M4 路由与故障转移
     Router::Tier m_tier = Router::Tier::Main;
@@ -121,6 +124,7 @@ private:
     bool m_tierEscalated = false;   // 本任务已升档一次
     int m_transportFailures = 0;    // 连续传输级失败（故障转移判定）
     bool m_failedOver = false;      // 本任务已切换供应商
+    qint64 m_lastPromptTokens = 0;  // 上一轮流prompt用量（增量记账：只收新增输入，避免重发 history 造成 O(N²) 口径）
 
     // 待授权工具调用（AwaitingPermission 状态下挂起）
     QString m_pendingCallId;

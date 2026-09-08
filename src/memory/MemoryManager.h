@@ -2,6 +2,7 @@
 // 检索 = FTS5 trigram（短词 LIKE 兜底）→ 综合评分 → Top5 → access_count 回写
 #pragma once
 #include <QDateTime>
+#include <QJsonObject>
 #include <QVector>
 #include <QString>
 
@@ -38,6 +39,14 @@ public:
     bool updateContent(qint64 id, const QString& content);
     QVector<MemoryRecord> listAll(const QString& typeFilter = QString()) const;
     bool recordAccess(qint64 id);                  // access_count+1、last_accessed_at 更新
+
+    // ---- 一致性失效（存储体系 write-through + invalidation） ----
+    // 从收尾 LLM 输出中提取"被本次新知覆盖"的记忆编号：只接受数字/数字字符串、去重、
+    // 且必须 ⊆ 本次任务实际注入过的编号集合（防 LLM 幻觉编号误伤无关记忆）
+    static QVector<qint64> filterSupersededIds(const QJsonObject& parsed,
+                                               const QVector<qint64>& injectedIds);
+    // 批量归档（单条 UPDATE … IN）：L1 改写时同步失效被取代的 L3 旧条目；返回成功归档数
+    int archiveMemories(const QVector<qint64>& ids);
 
     // ---- 检索（任务开始时注入 system prompt「相关记忆」段） ----
     // 短词（<3 字符）自动降级 LIKE 全扫（必须有单测覆盖）

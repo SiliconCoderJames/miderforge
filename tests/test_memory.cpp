@@ -3,6 +3,8 @@
 #include "memory/MemoryManager.h"
 #include <QDir>
 #include <QFile>
+#include <QJsonArray>
+#include <QJsonObject>
 #include <QRandomGenerator>
 #include <doctest/doctest.h>
 #include <memory>
@@ -142,4 +144,48 @@ TEST_CASE("updateContent 与 archiveMemory（废弃=标记不物理删）") {
     const auto all = f.mem->listAll(QStringLiteral("project_facts"));
     REQUIRE(all.size() == 1); // 未物理删除
     CHECK(all.first().status == QStringLiteral("archived"));
+}
+
+TEST_CASE("一致性失效：filterSupersededIds 编号白名单校验（M4.5 回归）") {
+    using miderforge::MemoryManager;
+    QJsonObject parsed;
+    parsed.insert(QStringLiteral("superseded_memory_ids"),
+                  QJsonArray{2, QStringLiteral("3"), 9, QStringLiteral("abc"), 0, 2});
+
+    const auto out = MemoryManager::filterSupersededIds(parsed, {1, 2, 3});
+    // 只保留注入清单内的合法编号：字符串数字接受、重复去重、越界(9)/非法(abc)/非正(0)剔除
+    REQUIRE(out.size() == 2);
+    CHECK(out.contains(2));
+    CHECK(out.contains(3));
+    // 空字段/空清单
+    CHECK(MemoryManager::filterSupersededIds(QJsonObject{}, {1, 2, 3}).isEmpty());
+    CHECK(MemoryManager::filterSupersededIds(parsed, {}).isEmpty());
+}
+
+TEST_CASE("一致性失效：archiveMemories 批量归档且不物理删（M4.5 回归）") {
+    MemFixture f;
+    const qint64 a = f.mem->addMemory(QStringLiteral("project_facts"), QStringLiteral("项目用 Meson 组织。"), 0.5);
+    const qint64 b = f.mem->addMemory(QStringLiteral("project_facts"), QStringLiteral("构建入口在 scripts/。"), 0.5);
+    const qint64 c = f.mem->addMemory(QStringLiteral("project_facts"), QStringLiteral("项目已迁移到 CMake。"), 0.6);
+    CAPTURE(a, b, c);
+    REQUIRE(a != b);
+    REQUIRE(b != c);
+    REQUIRE(a != c);
+
+    CHECK(f.mem->archiveMemories({a, b}) == 2);
+    const auto all = f.mem->listAll(QStringLiteral("project_facts"));
+    REQUIRE(all.size() == 3); // 全在（废弃不物理删）
+    int archived = 0;
+    for (const auto& r : all) {
+        if (r.id == a || r.id == b)
+            CHECK(r.status == QStringLiteral("archived"));
+        if (r.status == QStringLiteral("archived"))
+            ++archived;
+    }
+    CHECK(archived == 2);
+    // c 仍是 active：下次检索只有迁移后的事实会命中
+    const auto hits = f.mem->retrieve(QStringLiteral("CMake 迁移"), 5);
+    REQUIRE_FALSE(hits.empty());
+    CHECK(hits.first().id == c);
+    CHECK(f.mem->archiveMemories({}) == 0); // 空清单安全
 }

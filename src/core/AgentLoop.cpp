@@ -12,10 +12,12 @@
 #include "util/JsonExtract.h"
 #include "util/Log.h"
 #include <QDateTime>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QRegularExpression>
 #include <QUrl>
+#include <utility>
 #include <spdlog/spdlog.h>
 
 namespace miderforge {
@@ -101,18 +103,25 @@ void AgentLoop::start(const QString& goal, qint64 taskId) {
     m_history = QJsonArray();
     m_round = 0;
     m_lastReflection.clear();
+    m_injectedMemories.clear();
+    m_lastPromptTokens = 0;
     m_running = true;
     m_breaker = Breaker(AppContext::instance().limits); // 每任务独立预算（设置页可改）
     m_gate.resetSessionGrants(); // 决策: "总是允许"随任务失效（会话粒度的保守实现）
     m_pendingCallId.clear();
 
-    // tasks 表持久化（M2）
+    // tasks 表持久化（M2）。外部 taskId（Scheduler 路径）行已存在且已标 running，
+    // 直接沿用——再 INSERT 会产生永不结束的幽灵 running 行，且会被启动恢复重新入队重复执行
     if (m_deps.db) {
-        qint64 id = 0;
-        m_deps.db->executeInsert(
-            QStringLiteral("INSERT INTO tasks(goal, status, created_at) VALUES(?, 'running', ?)"),
-            {goal, QDateTime::currentSecsSinceEpoch()}, &id);
-        m_taskId = taskId >= 0 ? taskId : id;
+        if (taskId >= 0) {
+            m_taskId = taskId;
+        } else {
+            qint64 id = 0;
+            m_deps.db->executeInsert(
+                QStringLiteral("INSERT INTO tasks(goal, status, created_at) VALUES(?, 'running', ?)"),
+                {goal, QDateTime::currentSecsSinceEpoch()}, &id);
+            m_taskId = id;
+        }
     } else {
         m_taskId = taskId;
     }
@@ -182,7 +191,7 @@ void AgentLoop::runRound() {
                        m_deps.tools ? m_deps.tools->openAiSchemas() : QJsonArray());
 }
 
-QString AgentLoop::buildSystemPrompt() const {
+QString AgentLoop::buildSystemPrompt() {
     // 组装顺序（规格 9）：角色设定 → L1 → 相关记忆 → 最近摘要 →（M3 追加可用技能）→ 工具 → 当前任务
     QString prompt = QStringLiteral(
         "你是运行在用户 Windows 电脑上的 Miderforge 编码 Agent，目标领域是 C++/CMake/Qt 项目开发。\n"
@@ -204,8 +213,12 @@ QString AgentLoop::buildSystemPrompt() const {
         const auto related = m_deps.mem->retrieve(retrievalQuery, 5);
         if (!related.isEmpty()) {
             prompt += QStringLiteral("\n===== 相关记忆 =====\n");
-            for (const auto& r : related)
+            for (const auto& r : related) {
                 prompt += QStringLiteral("- [%1] %2\n").arg(r.type, r.content.left(300));
+                // 登记 id+摘要：收尾时作为"一致性失效"的候选清单（只允许归档这份清单内的编号）
+                if (!m_injectedMemories.contains({r.id, r.content.left(100)}))
+                    m_injectedMemories.append({r.id, r.content.left(100)});
+            }
         }
 
         // 最近会话摘要：L2 最近 5 条
@@ -283,8 +296,13 @@ void AgentLoop::onStreamFinished(const StreamResult& result) {
         return;
     }
 
-    m_breaker.addTokens(result.promptTokens + result.completionTokens);
-    AppContext::instance().todayTokens += result.promptTokens + result.completionTokens;
+    // 增量记账：promptTokens 含整段重发的 history，按全量累加是 O(N²) 超线性口径，
+    // 500K 预算撑不到标称轮数。只收"新增输入（本轮 prompt − 上轮 prompt）+ 本轮输出"
+    const long long promptDelta = qMax<long long>(0, result.promptTokens - m_lastPromptTokens);
+    m_lastPromptTokens = result.promptTokens;
+    const long long charged = promptDelta + result.completionTokens;
+    m_breaker.addTokens(charged);
+    AppContext::instance().todayTokens += charged;
     emit tokensChanged(m_breaker.tokens());
 
     // ---- assistant 消息入历史 ----
@@ -296,7 +314,8 @@ void AgentLoop::onStreamFinished(const StreamResult& result) {
         assistantMsg.insert("content", result.content);
     if (!result.toolCalls.isEmpty()) {
         QJsonArray calls;
-        for (size_t i = 0; i < result.toolCalls.size(); ++i) {
+        const int callCount = int(result.toolCalls.size());
+        for (int i = 0; i < callCount; ++i) {
             const auto& tc = result.toolCalls[i];
             calls.append(QJsonObject{
                 {"id", toolCallId(tc, int(i), m_round)},
@@ -323,7 +342,8 @@ void AgentLoop::onStreamFinished(const StreamResult& result) {
 
     // ---- 工具批：逐个过权限门后执行 ----
     setState(State::Executing);
-    for (size_t i = 0; i < result.toolCalls.size(); ++i) {
+    const int toolCount = int(result.toolCalls.size());
+    for (int i = 0; i < toolCount; ++i) {
         const auto& tc = result.toolCalls[i];
         const QString callId = toolCallId(tc, int(i), m_round);
         emit toolCallStarted(callId, tc.name, tc.arguments);
@@ -526,8 +546,12 @@ void AgentLoop::beginFinalize(bool ok, const QString& summaryOrReason) {
 
 QString AgentLoop::buildFinalizePrompt(bool ok, const QString& summaryOrReason) const {
     QString currentL1;
-    if (m_deps.mem)
+    long long l1Tokens = 0;
+    if (m_deps.mem) {
         currentL1 = m_deps.mem->loadL1();
+        l1Tokens = m_deps.mem->l1Tokens();
+    }
+    const long long l1Cap = AppContext::instance().l1TokenLimit;
 
     // 自沉淀判定（规格 7）：工具调用 ≥5 次且成功 → 请求生成 SKILL.md 草稿
     QString skillSection;
@@ -542,23 +566,46 @@ QString AgentLoop::buildFinalizePrompt(bool ok, const QString& summaryOrReason) 
             .arg(m_toolCallsThisTask);
     }
 
+    // 一致性失效候选清单（存储体系 write-through + invalidation）：
+    // 本次注入过的 L3 记忆带编号列出；LLM 只能在这个清单里挑"已被本次新知覆盖"的旧条目，
+    // 落库侧再用 filterSupersededIds 做编号白名单校验，双保险防幻觉编号误伤
+    QString memorySection;
+    if (!m_injectedMemories.isEmpty()) {
+        memorySection = QStringLiteral("\n本次任务注入过的相关记忆（#编号 内容摘要）：\n");
+        int shown = 0;
+        for (const auto& [id, snippet] : m_injectedMemories) {
+            if (shown >= 20) {
+                memorySection += QStringLiteral("…等共 %1 条\n").arg(m_injectedMemories.size());
+                break;
+            }
+            memorySection += QStringLiteral("  #%1 %2\n").arg(id).arg(snippet);
+            ++shown;
+        }
+        memorySection += QStringLiteral(
+            "若上面某条旧记忆已被本次任务的新知覆盖或推翻，请在 superseded_memory_ids "
+            "中列出其编号（只能从上面列出的编号中选）；没有则给空数组。\n");
+    }
+
     return QStringLiteral(
         "你是 Miderforge 的记忆管理员。一次任务刚刚结束，请把它沉淀进记忆系统。\n"
         "任务结局：%1\n任务摘要/失败原因：%2\n使用轮数：%3\n累计 tokens：%4\n"
-        "\n当前 L1 核心记忆全文：\n%5\n%6\n"
+        "\n当前 L1 核心记忆全文（约 %5 / 上限 %6 tokens）：\n%7\n%8%9\n"
         "请只输出一个 JSON 对象（不要 markdown 围栏），字段：\n"
         "{\n"
         "  \"result_summary\": \"任务结果摘要（≤200字）\",\n"
         "  \"session_summary\": \"本次会话摘要，格式：目标-做法-结果-教训（≤200 token）\",\n"
-        "  \"l1_new\": \"合并提炼后的 L1 全文（保留旧有有效信息、删除过时项、融入本次新知）；若无需变动则为 null\",\n"
-        "  \"lesson\": \"失败教训一句话 或 null\"%7\n"
+        "  \"l1_new\": \"合并提炼后的 L1 全文（保留旧有有效信息、删除过时项、融入本次新知，"
+        "总量必须控制在 %6 tokens 以内）；若无需变动则为 null\",\n"
+        "  \"lesson\": \"失败教训一句话 或 null\"%10%11\n"
         "}")
         .arg(ok ? QStringLiteral("成功") : QStringLiteral("失败/熔断"),
              summaryOrReason.left(500), QString::number(m_round),
              QString::number(m_breaker.tokens()),
+             QString::number(l1Tokens), QString::number(l1Cap),
              currentL1.isEmpty() ? QStringLiteral("（空）") : currentL1,
-             skillSection,
-             skillSection.isEmpty() ? QString() : QStringLiteral(",\n  ...skill 字段见上"));
+             memorySection, skillSection,
+             skillSection.isEmpty() ? QString() : QStringLiteral(",\n  ...skill 字段见上"),
+             memorySection.isEmpty() ? QString() : QStringLiteral(",\n  \"superseded_memory_ids\": [被覆盖记忆的编号数组]"));
 }
 
 void AgentLoop::onFinalizeFinished(const StreamResult& result) {
@@ -590,6 +637,35 @@ void AgentLoop::finalizeTaskWrites(const QJsonObject& parsed) {
         const QString lesson = parsed.value("lesson").toString();
         if (!ok && !lesson.isEmpty())
             m_deps.mem->addMemory(QStringLiteral("task_lesson"), lesson, 0.8);
+        // ⑤b 一致性失效（存储体系 write-through + invalidation）：
+        // L1 已按新知改写 → 同步归档被覆盖/推翻的 L3 旧条目。编号白名单校验防幻觉误伤
+        if (!m_injectedMemories.isEmpty()) {
+            QVector<qint64> injectedIds;
+            injectedIds.reserve(m_injectedMemories.size());
+            for (const auto& [id, snippet] : m_injectedMemories) {
+                (void)snippet;
+                injectedIds.push_back(id);
+            }
+            const auto superseded = MemoryManager::filterSupersededIds(parsed, injectedIds);
+            const int invalidated = m_deps.mem->archiveMemories(superseded);
+            if (invalidated > 0) {
+                if (m_deps.events)
+                    m_deps.events->append(QStringLiteral("memory_invalidate"), m_taskId,
+                                          QJsonObject{{"count", invalidated}});
+                if (auto lg = logutil::logger())
+                    lg->info("一致性失效：{} 条被本次新知覆盖的旧记忆已归档", invalidated);
+            }
+        }
+        // ⑤c L1 容量纪律（存储体系：每层有容量上限）。v1 软约束：提示词要求控制 + 超限告警
+        const long long used = m_deps.mem->l1Tokens();
+        const long long cap = AppContext::instance().l1TokenLimit;
+        if (used > cap) {
+            if (m_deps.events)
+                m_deps.events->append(QStringLiteral("l1_overflow"), m_taskId,
+                                      QJsonObject{{"used", double(used)}, {"cap", double(cap)}});
+            if (auto lg = logutil::logger())
+                lg->warn("L1 核心记忆超限：{} / {} tokens，建议在记忆视图手动精简", used, cap);
+        }
     }
     // ④ 技能自沉淀：交 UI 确认（或自动通过）后由 acceptSkillProposal 落盘
     const QString skillName = parsed.value("skill_name").toString();

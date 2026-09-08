@@ -7,6 +7,8 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QJsonArray>
+#include <QJsonObject>
 #include <QRegularExpression>
 #include <algorithm>
 #include <cmath>
@@ -124,6 +126,40 @@ QVector<MemoryManager::MemoryRecord> MemoryManager::selectBySql(const QString& s
         out.push_back(std::move(r));
     }
     return out;
+}
+
+QVector<qint64> MemoryManager::filterSupersededIds(const QJsonObject& parsed,
+                                                   const QVector<qint64>& injectedIds) {
+    QVector<qint64> out;
+    const auto arr = parsed.value(QStringLiteral("superseded_memory_ids")).toArray();
+    for (const auto& v : arr) {
+        bool ok = false;
+        const qint64 id = v.toVariant().toLongLong(&ok); // 数字与数字字符串都接受
+        if (!ok || id <= 0)
+            continue;
+        if (!injectedIds.contains(id))
+            continue; // 只允许失效本次真正注入过的条目，杜绝幻觉编号误伤
+        if (!out.contains(id))
+            out.push_back(id);
+    }
+    return out;
+}
+
+int MemoryManager::archiveMemories(const QVector<qint64>& ids) {
+    if (ids.isEmpty())
+        return 0;
+    QStringList ph;
+    QVariantList binds;
+    const qint64 now = QDateTime::currentSecsSinceEpoch();
+    binds << now; // 注意：SQL 第一个 ? 是 updated_at，其后才是 IN 列表（漏绑会让 NULL 落进 IN）
+    for (qint64 id : ids) {
+        ph << QStringLiteral("?");
+        binds << id;
+    }
+    const bool ok = m_db->execute(QStringLiteral(
+        "UPDATE memories SET status='archived', updated_at=? WHERE id IN (%1)")
+        .arg(ph.join(QLatin1Char(','))), binds);
+    return ok ? ids.size() : 0;
 }
 
 double MemoryManager::score(double bm25Rank, double importance, qint64 updatedAt,
