@@ -79,7 +79,8 @@ QVector<EventBus::Event> EventBus::loadAll(int maxKeep) const {
         Event ev;
         ev.ts = obj.value("ts").toDouble();
         ev.type = obj.value("type").toString();
-        ev.taskId = obj.value("task_id").toInt(-1);
+        const QVariant taskVar = obj.value("task_id").toVariant();
+        ev.taskId = taskVar.isValid() ? taskVar.toLongLong() : -1; // 与 events 表回填同口径（QJsonValue 无 toLongLong）
         ev.payload = obj;
         out.push_back(ev);
     }
