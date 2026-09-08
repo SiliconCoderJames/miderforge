@@ -2,6 +2,10 @@
 cmake_minimum_required(VERSION 3.24)
 project(Miderforge VERSION 0.1.0 LANGUAGES C CXX)
 
+# CTest：README/CI 的验收门槛（ctest --preset 必须全绿）依赖这里注册测试；
+# 缺了它 ctest 会"0 个测试"空转、门槛形同虚设（巡检发现并修复）
+enable_testing()
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
@@ -89,6 +93,14 @@ target_link_libraries(mider_ui PUBLIC mider_core Qt6::Widgets)
 qt_add_executable(miderforge WIN32 src/main.cpp)
 target_link_libraries(miderforge PRIVATE mider_ui)
 
+# 运行时 DLL 随 exe 就位（Qt 等）：免"PATH 没挂 Qt bin 就 0xc0000135"，ctest 与直接启动都可用
+if(WIN32)
+    add_custom_command(TARGET miderforge POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_RUNTIME_DLLS:miderforge> $<TARGET_FILE_DIR:miderforge>
+        COMMAND_EXPAND_LISTS)
+endif()
+
 # 单元测试（doctest）：只依赖 mider_core，不拉 Widgets
 add_executable(mider_tests
     tests/test_main.cpp
@@ -107,4 +119,15 @@ target_link_libraries(mider_tests PRIVATE mider_core Qt6::Network doctest::docte
 if(MSVC)
     # 崩溃栈回溯（tests/test_main.cpp 的 dbghelp 符号解析）
     target_link_libraries(mider_tests PRIVATE dbghelp)
+endif()
+# 注册进 CTest：整个 doctest 套件作为一个测试用例（失败即非零退出码），
+# 超时 5 分钟兜底防挂起（mock 流式重试类用例最坏耗时数十秒）
+add_test(NAME mider_unit_tests COMMAND mider_tests)
+set_tests_properties(mider_unit_tests PROPERTIES TIMEOUT 300)
+if(WIN32)
+    # 测试 exe 的运行时 DLL（Qt 等）随构建就位，ctest 无需手工挂 PATH
+    add_custom_command(TARGET mider_tests POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_RUNTIME_DLLS:mider_tests> $<TARGET_FILE_DIR:mider_tests>
+        COMMAND_EXPAND_LISTS)
 endif()
