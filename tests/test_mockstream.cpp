@@ -80,7 +80,8 @@ private slots:
                 for (int i = 0; i <= sc.abortAfterChunk && i < sc.chunks.size(); ++i)
                     sent += sc.chunks[i].size();
                 sock->write(head + body.left(int(sent)));
-                QTimer::singleShot(60, sock, [sock] { sock->abort(); });
+                sock->flush(); // 先把部分数据推到内核，避免 abort 丢弃写缓冲（慢机器上的竞态）
+                QTimer::singleShot(150, sock, [sock] { sock->abort(); });
                 return;
             }
             sock->write(head);
@@ -220,7 +221,7 @@ TEST_CASE("流中途断线：指数退避自动重试后成功") {
     messages.append(QJsonObject{{"role", "user"}, {"content", "断线测试"}});
     client.start(provider, QStringLiteral("mock-model"), messages, QJsonArray());
 
-    REQUIRE(waitFor([&] { return result.has_value(); }, 15000)); // 含 1s 退避
+    REQUIRE(waitFor([&] { return result.has_value(); }, 45000)); // 含 1s 退避；CI 慢机器上留足余量
     CHECK(sawRetry);
     CHECK(sawReset);
     CHECK(server.connectionCount() >= 2); // 断线后确实重连
