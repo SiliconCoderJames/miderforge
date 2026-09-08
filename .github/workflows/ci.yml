@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-test:
+    runs-on: windows-latest
+    env:
+      VCPKG_ROOT: ${{ github.workspace }}/vcpkg
+    steps:
+      - uses: actions/checkout@v4
+
+      # vcpkg 固定到 vcpkg.json 的 builtin-baseline，保证依赖版本可复现
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgDirectory: ${{ github.workspace }}/vcpkg
+          vcpkgGitCommitId: 04a9d8e5212d01ee1dd9478eadd9caade4f8b0d4
+
+      # Qt 6.8.3 msvc2022_64，安装到 C:\Qt（与本地 CMakePresets.json 的路径约定一致）
+      - name: Setup Qt 6.8
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.8.3"
+          arch: win64_msvc2022_64
+          dir: "C:\\Qt"
+          cache: true
+
+      - name: Configure (MSVC + vcpkg manifest)
+        shell: pwsh
+        run: |
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+          Import-Module "$vs\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
+          Enter-VsDevShell -VsInstallPath $vs -SkipAutomaticLocation -DevCmdArguments "-arch=x64 -host_arch=x64"
+          cmake -B build -G "Ninja" `
+            -DCMAKE_BUILD_TYPE=Debug `
+            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT\scripts\buildsystems\vcpkg.cmake" `
+            -DCMAKE_PREFIX_PATH="C:/Qt/6.8.3/msvc2022_64"
+
+      - name: Build
+        shell: pwsh
+        run: |
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+          Import-Module "$vs\Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
+          Enter-VsDevShell -VsInstallPath $vs -SkipAutomaticLocation -DevCmdArguments "-arch=x64 -host_arch=x64"
+          cmake --build build --config Debug
+
+      - name: Run unit tests (doctest, must be green)
+        shell: pwsh
+        run: |
+          $env:PATH = "C:/Qt/6.8.3/msvc2022_64/bin;$env:PATH"
+          & .\build\mider_tests.exe

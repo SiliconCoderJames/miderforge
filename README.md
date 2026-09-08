@@ -126,7 +126,23 @@ Miderforge/
 
 ## 📸 Screenshots
 
-> 占位：UI 完成后补充主界面截图。
+<div align="center">
+
+**💬 会话视图** — 任务气泡 · 流式状态 · 内联错误提示
+
+![会话视图](docs/assets/screenshots/session.png)
+
+**📋 任务队列** — 状态语义色 · 步骤时间线
+
+![任务队列](docs/assets/screenshots/tasks.png)
+
+| 🔌 供应商（三档路由 + 故障转移链） | 📜 审计日志（append-only 全量留痕） |
+|---|---|
+| ![供应商](docs/assets/screenshots/providers.png) | ![审计日志](docs/assets/screenshots/audit.png) |
+
+</div>
+
+> 更多视图（🧰 技能库 / 🧠 记忆）见 [docs/assets/screenshots/](docs/assets/screenshots/)。
 
 ## 🤝 贡献
 
