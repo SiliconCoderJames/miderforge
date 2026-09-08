@@ -130,10 +130,15 @@ void ExtraTools::registerAll(ToolRegistry& reg) {
             const int port = u.port(u.scheme().compare(QLatin1String("https"), Qt::CaseInsensitive) == 0
                                         ? 443
                                         : 80);
-            // 钉住校验时解析到的 IP：curl 不再二次解析，杜绝"校验用 A 记录、抓取被 rebinding 到内网"的窗口
-            QString pin = QStringLiteral("%1:%2:%3").arg(u.host()).arg(port);
-            pin += u.host().contains(QLatin1Char(':')) ? QStringLiteral("[%1]").arg(pinnedIp)
-                                                       : pinnedIp;
+            // 钉住校验时解析到的 IP：curl 不再二次解析，杜绝"校验用 A 记录、抓取被 rebinding 到内网"的窗口。
+            // RESOLVE 条目格式 HOST:PORT:ADDRESS，三个占位符逐一替换（漏一次 %3 就会拼出 %3IP 的废条目，
+            // curl 忽略废条目后回退自主 DNS，防护静默失效）；IPv6 地址必须加方括号与端口号冒号区分（curl ≥7.59）
+            const QString pin = QStringLiteral("%1:%2:%3")
+                                    .arg(u.host())
+                                    .arg(port)
+                                    .arg(u.host().contains(QLatin1Char(':'))
+                                             ? QStringLiteral("[%1]").arg(pinnedIp)
+                                             : pinnedIp);
             curl_slist* resolveList = curl_slist_append(nullptr, pin.toUtf8().constData());
 
             body.clear();

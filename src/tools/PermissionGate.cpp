@@ -33,10 +33,6 @@ bool PermissionGate::pathInWorkspace(const QString& absPath, const QString& work
 }
 
 bool PermissionGate::matchesForbiddenPath(const QString& path) const {
-    // 永不解禁：路径含敏感名（踩坑防御：大小写不敏感 + 路径匹配）
-    static const QRegularExpression sensitive(
-        QStringLiteral("(credential|secret|token|id_rsa|id_ed25519|id_ecdsa)"),
-        QRegularExpression::CaseInsensitiveOption);
     const QString p = QDir::fromNativeSeparators(path);
     const QString name = p.mid(p.lastIndexOf(QLatin1Char('/')) + 1);
     // .env 家族（.env / .env.local / prod.env 等）
@@ -47,15 +43,40 @@ bool PermissionGate::matchesForbiddenPath(const QString& path) const {
                                             QRegularExpression::CaseInsensitiveOption);
     if (keyFile.match(name).hasMatch())
         return true;
-    // 敏感目录（路径组件级）：.ssh / .aws / .kube 下任何文件
     const QStringList comps = p.split(QLatin1Char('/'), Qt::SkipEmptyParts);
+    // 文件名主干（去最后一个扩展名）整名匹配：credentials.json / secrets.txt 这类复数主干
+    // （词边界正则吃不到 credential 后紧跟 s 的情况）；主干集不含 tokens，保住 Tokens.cpp
+    static const QStringList kSensitiveStems = {
+        QStringLiteral("credential"), QStringLiteral("credentials"),
+        QStringLiteral("secret"),     QStringLiteral("secrets"),
+        QStringLiteral("password"),
+    };
+    const QString stem = name.section(QLatin1Char('.'), 0, -2).toLower();
+    if (kSensitiveStems.contains(stem))
+        return true;
+    // 敏感目录（组件级整名匹配）：.ssh / .aws / .kube / secrets / credentials 下任何文件
+    static const QStringList kSensitiveComponents = {
+        QStringLiteral(".ssh"),   QStringLiteral(".aws"),       QStringLiteral(".kube"),
+        QStringLiteral("secret"), QStringLiteral("secrets"),    QStringLiteral("credential"),
+        QStringLiteral("credentials"),
+    };
     for (const QString& c : comps) {
-        if (c.compare(QLatin1String(".ssh"), Qt::CaseInsensitive) == 0
-            || c.compare(QLatin1String(".aws"), Qt::CaseInsensitive) == 0
-            || c.compare(QLatin1String(".kube"), Qt::CaseInsensitive) == 0)
+        for (const QString& s : kSensitiveComponents)
+            if (c.compare(s, Qt::CaseInsensitive) == 0)
+                return true;
+    }
+    // 敏感词（组件级词边界匹配）：子串匹配会误伤 Tokens.cpp / tokenizer.cpp 这类正常文件名，
+    // 只有词元前后都是非字母数字（分隔符/开头/结尾/扩展名点）才算命中——
+    // "token.txt"/"API_TOKEN.h" 拦，"Tokens.cpp"/"tokenizer.cpp" 放
+    static const QRegularExpression sensitiveWord(
+        QStringLiteral("(^|[^a-z0-9])(credential|secret|token|password|id_rsa|id_ed25519|id_ecdsa)"
+                       "([^a-z0-9]|$)"),
+        QRegularExpression::CaseInsensitiveOption);
+    for (const QString& c : comps) {
+        if (sensitiveWord.match(c).hasMatch())
             return true;
     }
-    return sensitive.match(p).hasMatch();
+    return false;
 }
 
 namespace {
@@ -92,6 +113,47 @@ bool gitPushHitsProtected(const QString& cmd) {
     return false;
 }
 
+// git 子命令定位：跳过全局开关（-C 等）后的第一个位置参数
+struct GitSub { QString sub; QStringList rest; };
+GitSub gitSubcommand(const QStringList& tokens, int gitIdx) {
+    GitSub out;
+    for (int i = gitIdx + 1; i < tokens.size(); ++i) {
+        if (tokens[i].startsWith(QLatin1Char('-')))
+            continue; // 全局开关（-C 的值被误当子命令的极端场景不拦，可接受：破坏面在子命令开关上）
+        out.sub = tokens[i].toLower();
+        for (int j = i + 1; j < tokens.size(); ++j)
+            out.rest << tokens[j];
+        break;
+    }
+    return out;
+}
+
+// 白名单内的破坏性 git 操作：reset --hard / clean -f 会毁掉用户未提交的工作，
+// 与命令白名单正交——git 在名单内不等于其破坏性子命令放行
+bool gitDestructive(const QStringList& tokens) {
+    for (int i = 0; i < tokens.size(); ++i) {
+        if (tokens[i].compare(QLatin1String("git"), Qt::CaseInsensitive) != 0)
+            continue;
+        const GitSub s = gitSubcommand(tokens, i);
+        if (s.sub == QLatin1String("reset")) {
+            for (const QString& f : s.rest)
+                if (f.compare(QLatin1String("--hard"), Qt::CaseInsensitive) == 0)
+                    return true;
+        }
+        if (s.sub == QLatin1String("clean")) {
+            for (const QString& f : s.rest) {
+                if (f.compare(QLatin1String("--force"), Qt::CaseInsensitive) == 0)
+                    return true;
+                // -f/-fd/-fdx/-df 等短选项组合：含 f 即强制删除（-n 干跑放行）
+                if (f.startsWith(QLatin1Char('-')) && !f.startsWith(QLatin1String("--"))
+                    && f.contains(QLatin1Char('f'), Qt::CaseInsensitive))
+                    return true;
+            }
+        }
+    }
+    return false;
+}
+
 } // namespace
 
 QString PermissionGate::hardDenyReason(PermissionGate::Kind kind, const QString& target,
@@ -102,9 +164,14 @@ QString PermissionGate::hardDenyReason(PermissionGate::Kind kind, const QString&
     }
     if (kind == Kind::RunCommand) {
         const QString cmd = target.trimmed();
+        const QStringList tokens =
+            cmd.split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
         // git push 到保护分支（token 化解析，见 gitPushHitsProtected 注释）
         if (gitPushHitsProtected(cmd))
             return QStringLiteral("禁止 git push 到 main/master/protected 分支");
+        // 白名单内的破坏性 git：reset --hard / clean -f（工作区内也可能毁掉未提交工作）
+        if (gitDestructive(tokens))
+            return QStringLiteral("禁止破坏性 git 操作（reset --hard / clean -f 会丢弃未提交改动）");
         // 磁盘级操作
         static const QRegularExpression diskLevel(
             QStringLiteral("\\b(format|diskpart|cipher\\s+/w)\\b"),

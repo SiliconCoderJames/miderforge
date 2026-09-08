@@ -207,3 +207,52 @@ TEST_CASE("永不解禁清单扩展：证书容器与敏感目录") {
                       qPrintable(p));
     }
 }
+
+TEST_CASE("敏感词组件级匹配：正常文件名不再误伤（回归）") {
+    PermissionGate gate;
+    // 本仓库自己的源码必须可读（旧正则对全路径做 token 子串匹配会硬拒 Tokens.cpp）
+    CHECK(gate.evaluate(PermissionMode::FullAccess, PermissionGate::Kind::ReadFile,
+                        WS + QStringLiteral("/src/util/Tokens.cpp"), WS)
+          == PermissionGate::Decision::Allowed);
+    CHECK(gate.evaluate(PermissionMode::FullAccess, PermissionGate::Kind::ReadFile,
+                        QStringLiteral("C:/proj/tokenizer.cpp"), WS)
+          == PermissionGate::Decision::Allowed);
+    // 真正的敏感名仍然拦截
+    const QStringList stillForbidden = {
+        QStringLiteral("C:/proj/token.txt"),
+        QStringLiteral("C:/proj/API_TOKEN.h"),
+        QStringLiteral("C:/proj/credentials.json"),
+        QStringLiteral("C:/proj/secrets/api.key"),
+        QStringLiteral("C:/proj/my_secret.txt"),
+    };
+    for (const QString& p : stillForbidden) {
+        CHECK_MESSAGE(gate.evaluate(PermissionMode::FullAccess, PermissionGate::Kind::ReadFile, p, WS)
+                          == PermissionGate::Decision::Denied,
+                      qPrintable(p));
+    }
+}
+
+TEST_CASE("白名单内破坏性 git：reset --hard / clean -f 硬拒，干跑与安全操作放行") {
+    PermissionGate gate;
+    const QStringList destructive = {
+        QStringLiteral("git reset --hard"),
+        QStringLiteral("git reset --hard HEAD~3"),
+        QStringLiteral("git clean -fdx"),
+        QStringLiteral("git clean -f"),
+        QStringLiteral("git clean --force"),
+    };
+    for (const QString& c : destructive) {
+        CHECK_MESSAGE(!gate.hardDenyReason(PermissionGate::Kind::RunCommand, c, WS).isEmpty(),
+                      qPrintable(c));
+    }
+    CHECK(gate.evaluate(PermissionMode::FullAccess, PermissionGate::Kind::RunCommand,
+                        QStringLiteral("git reset --hard"), WS)
+          == PermissionGate::Decision::Denied);
+    // 干跑 / 软回退 / 日常操作不受影响
+    CHECK(gate.hardDenyReason(PermissionGate::Kind::RunCommand,
+                              QStringLiteral("git clean -n"), WS).isEmpty());
+    CHECK(gate.hardDenyReason(PermissionGate::Kind::RunCommand,
+                              QStringLiteral("git reset --soft HEAD~1"), WS).isEmpty());
+    CHECK(gate.hardDenyReason(PermissionGate::Kind::RunCommand,
+                              QStringLiteral("git status"), WS).isEmpty());
+}
