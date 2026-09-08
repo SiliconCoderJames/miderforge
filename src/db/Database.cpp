@@ -123,6 +123,7 @@ bool Database::migrate() {
             tokens_out INTEGER NOT NULL DEFAULT 0,
             result_summary TEXT,
             failure_reason TEXT,
+            context_json TEXT,
             created_at INTEGER NOT NULL,
             finished_at INTEGER
         ))",
@@ -165,6 +166,30 @@ bool Database::migrate() {
                              "ALTER TABLE skills ADD COLUMN version INTEGER NOT NULL DEFAULT 1",
                              nullptr, nullptr, &err) != SQLITE_OK) {
                 m_lastError = QString::fromUtf8(err ? err : "skills.version 迁移失败");
+                if (err)
+                    sqlite3_free(err);
+                return false;
+            }
+        }
+    }
+    // tasks.context_json 是 M5 后补列（决策: checkpoint 断点续跑——每轮末持久化 history/轮次/路由档，
+    // 崩溃/退出后 Scheduler 重新入队时可从断点恢复而非从头重跑）
+    {
+        sqlite3_stmt* stmt = nullptr;
+        bool hasCtx = false;
+        if (sqlite3_prepare_v2(m_db, "PRAGMA table_info(tasks)", -1, &stmt, nullptr) == SQLITE_OK) {
+            while (sqlite3_step(stmt) == SQLITE_ROW) {
+                const unsigned char* col = sqlite3_column_text(stmt, 1);
+                if (col && QLatin1String(reinterpret_cast<const char*>(col)) == QLatin1String("context_json"))
+                    hasCtx = true;
+            }
+            sqlite3_finalize(stmt);
+        }
+        if (!hasCtx) {
+            char* err = nullptr;
+            if (sqlite3_exec(m_db, "ALTER TABLE tasks ADD COLUMN context_json TEXT",
+                             nullptr, nullptr, &err) != SQLITE_OK) {
+                m_lastError = QString::fromUtf8(err ? err : "tasks.context_json 迁移失败");
                 if (err)
                     sqlite3_free(err);
                 return false;

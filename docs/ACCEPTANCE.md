@@ -64,7 +64,7 @@
 - [x] token 记账改增量口径（本轮新增输入+输出），消除 O(N²) 超线性（代码审查验证）(2026-09-08)
 - [x] 每轮检索查询随模型反思演化，不再 25 轮注入同一批记忆（代码审查验证）(2026-09-08)
 
-## M5：中断分级（实施中）
+## M5：中断分级（已完成）
 
 四级中断模型（P0 系统级 / P1 熔断级 / P2 用户级 / P3 操作级）+ 两轴分类（可恢复性 × 协作性）：
 
@@ -72,4 +72,4 @@
 - [x] P3 取消令牌贯穿工具层：ToolRegistry 原子令牌 → run_command 入口快检 + 150ms 轮询 kill / http_fetch 进度回调中止 → 工具批收尾消费判停（单测覆盖令牌语义与入口快检）(2026-09-08)
 - [x] P2 暂停/恢复：轮边界安全点挂起（不打断在跑工具/流式），m_history 保持可续；挂起期间任务行 status='paused'，取消可直接判停，启动恢复将遗留 paused 行重新入队（代码审查验证，GUI 交互待人工）(2026-09-08)
 - [x] P0 接入 OS 会话信号：aboutToQuit + commitDataRequest（WM_QUERYENDSESSION）→ shutdownRequeue（在跑任务放回 queued、请求工具快速中止，与启动恢复闭环）(2026-09-08)
-- [ ] checkpoint 续跑：崩溃恢复从"重新入队重跑"升级为"断点续跑"
+- [x] checkpoint 续跑：tasks.context_json 列（增量迁移）每轮末/挂起时持久化 history/轮次/路由档/token 预算；Scheduler 重新入队时经 startWithCheckpoint 从断点的下一轮继续，终态自动清除断点（单测覆盖迁移列读写与清除）(2026-09-08)

@@ -1,9 +1,11 @@
 // 记忆系统单测（M2 验收：trigram 中文检索、短词 LIKE 兜底、评分排序、L2 滚动）
 #include "db/Database.h"
 #include "memory/MemoryManager.h"
+#include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QJsonArray>
+#include <QJsonDocument>
 #include <QJsonObject>
 #include <QRandomGenerator>
 #include <doctest/doctest.h>
@@ -162,12 +164,37 @@ TEST_CASE("一致性失效：filterSupersededIds 编号白名单校验（M4.5 �
     CHECK(MemoryManager::filterSupersededIds(parsed, {}).isEmpty());
 }
 
+TEST_CASE("M5-④ tasks.context_json 迁移列存在且可读写（断点续跑存储）") {
+    MemFixture f;
+    // 老库/新库迁移后都应带 context_json 列（ALTER TABLE 增量补列）
+    REQUIRE(f.db.execute(QStringLiteral(
+        "INSERT INTO tasks(goal, status, context_json, created_at) VALUES(?, 'queued', ?, ?)"),
+        {QStringLiteral("断点任务"),
+         QStringLiteral("{\"history\":[],\"round\":3,\"tier\":2,\"tokens\":1234}"),
+         QDateTime::currentSecsSinceEpoch()}));
+    const auto rows = f.db.query(QStringLiteral(
+        "SELECT context_json FROM tasks WHERE goal=?"), {QStringLiteral("断点任务")});
+    REQUIRE(rows.size() == 1);
+    const auto ckpt = QJsonDocument::fromJson(
+        rows.front().value("context_json").toString().toUtf8()).object();
+    CHECK(ckpt.value("round").toInt() == 3);
+    CHECK(ckpt.value("tokens").toDouble() == 1234.0);
+    // 终态清除断点
+    CHECK(f.db.execute(QStringLiteral("UPDATE tasks SET context_json=NULL WHERE goal=?"),
+                       {QStringLiteral("断点任务")}));
+    const auto rows2 = f.db.query(QStringLiteral(
+        "SELECT context_json FROM tasks WHERE goal=?"), {QStringLiteral("断点任务")});
+    CHECK(rows2.front().value("context_json").isNull());
+}
+
 TEST_CASE("一致性失效：archiveMemories 批量归档且不物理删（M4.5 回归）") {
     MemFixture f;
     const qint64 a = f.mem->addMemory(QStringLiteral("project_facts"), QStringLiteral("项目用 Meson 组织。"), 0.5);
     const qint64 b = f.mem->addMemory(QStringLiteral("project_facts"), QStringLiteral("构建入口在 scripts/。"), 0.5);
     const qint64 c = f.mem->addMemory(QStringLiteral("project_facts"), QStringLiteral("项目已迁移到 CMake。"), 0.6);
-    CAPTURE(a, b, c);
+    CAPTURE(a);
+    CAPTURE(b);
+    CAPTURE(c);
     REQUIRE(a != b);
     REQUIRE(b != c);
     REQUIRE(a != c);

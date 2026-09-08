@@ -4,6 +4,8 @@
 #include "db/Database.h"
 #include "util/Log.h"
 #include <QDateTime>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <spdlog/spdlog.h>
 
 namespace miderforge {
@@ -30,9 +32,9 @@ Scheduler::Scheduler(Database* db, AgentLoop* loop, QObject* parent)
 void Scheduler::tick() {
     if (m_loop->isRunning())
         return;
-    // 到点/待启动的队列任务：scheduled_at=0(立即) 或 <=now
+    // 到点/待启动的队列任务：scheduled_at=0(立即) 或 <=now；context_json 为 M5-④ 断点（可能为空）
     const auto rows = m_db->query(QStringLiteral(
-        "SELECT id, goal FROM tasks WHERE status='queued' AND (scheduled_at=0 OR scheduled_at<=?) "
+        "SELECT id, goal, context_json FROM tasks WHERE status='queued' AND (scheduled_at=0 OR scheduled_at<=?) "
         "ORDER BY created_at ASC, id ASC LIMIT 1"),
         {QDateTime::currentSecsSinceEpoch()});
     if (rows.empty())
@@ -47,7 +49,10 @@ void Scheduler::tick() {
     m_runningTaskId = id;
     if (auto lg = logutil::logger())
         lg->info("调度器启动任务 #{}", id);
-    m_loop->start(goal, id);
+    // M5-④：携带断点启动（无断点时为空对象 = 全新开始）
+    const QString ctx = rows.front().value("context_json").toString();
+    const QJsonObject checkpoint = QJsonDocument::fromJson(ctx.toUtf8()).object();
+    m_loop->startWithCheckpoint(goal, id, checkpoint);
 }
 
 void Scheduler::onLoopFinished(bool ok, const QString& summary) {

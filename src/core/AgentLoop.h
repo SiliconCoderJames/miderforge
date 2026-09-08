@@ -50,6 +50,9 @@ public:
     AgentLoop(Deps deps, QObject* parent = nullptr);
 
     void start(const QString& goal, qint64 taskId = -1);
+    // M5-④ 断点续跑入口：Scheduler 从 tasks.context_json 恢复时传入检查点
+    //（history/轮次/路由档/token 预算），任务从断点的下一轮继续而非从头重跑
+    void startWithCheckpoint(const QString& goal, qint64 taskId, const QJsonObject& checkpoint);
     void cancel();
     bool isRunning() const { return m_running; }
     long long totalTokens() const { return m_breaker.tokens(); }
@@ -101,7 +104,9 @@ private slots:
 
 private:
     void setState(State s);
+    void beginTask(const QString& goal, qint64 taskId, const QJsonObject& checkpoint); // start/startWithCheckpoint 共用初始化
     void enterPaused(); // M5 P2：在轮边界进入挂起（持久化 paused + 通知 UI）
+    void writeCheckpoint(); // M5-④：每轮末/挂起时把可恢复状态持久化到 tasks.context_json
     void runRound();
     void finishToolBatch(); // 工具批执行完：熔断检查 → 下一轮或继续
     void executePendingTool(int decision);

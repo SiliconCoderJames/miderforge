@@ -88,6 +88,14 @@ void AgentLoop::setState(State s) {
 }
 
 void AgentLoop::start(const QString& goal, qint64 taskId) {
+    beginTask(goal, taskId, QJsonObject());
+}
+
+void AgentLoop::startWithCheckpoint(const QString& goal, qint64 taskId, const QJsonObject& checkpoint) {
+    beginTask(goal, taskId, checkpoint);
+}
+
+void AgentLoop::beginTask(const QString& goal, qint64 taskId, const QJsonObject& checkpoint) {
     if (m_running) {
         emit loopFailed(QStringLiteral("已有任务在执行中"));
         return;
@@ -117,6 +125,20 @@ void AgentLoop::start(const QString& goal, qint64 taskId) {
     m_gate.resetSessionGrants(); // 决策: "总是允许"随任务失效（会话粒度的保守实现）
     m_pendingCallId.clear();
 
+    // M5-④ 断点恢复：在首轮派发前覆盖可恢复字段（顺序关键——start 末尾就是 runRound）
+    const QJsonArray checkpointHistory = checkpoint.value(QStringLiteral("history")).toArray();
+    const bool resumed = !checkpointHistory.isEmpty();
+    if (resumed) {
+        m_history = checkpointHistory;
+        m_round = checkpoint.value(QStringLiteral("round")).toInt();
+        m_tier = static_cast<Router::Tier>(
+            checkpoint.value(QStringLiteral("tier")).toInt(static_cast<int>(Router::Tier::Main)));
+        m_lastReflection = checkpoint.value(QStringLiteral("last_reflection")).toString();
+        const qint64 tokens = qint64(checkpoint.value(QStringLiteral("tokens")).toDouble());
+        m_breaker.addTokens(tokens > 0 ? tokens : 0);
+        m_lastPromptTokens = qint64(checkpoint.value(QStringLiteral("last_prompt_tokens")).toDouble());
+    }
+
     // tasks 表持久化（M2）。外部 taskId（Scheduler 路径）行已存在且已标 running，
     // 直接沿用——再 INSERT 会产生永不结束的幽灵 running 行，且会被启动恢复重新入队重复执行
     if (m_deps.db) {
@@ -129,14 +151,24 @@ void AgentLoop::start(const QString& goal, qint64 taskId) {
                 {goal, QDateTime::currentSecsSinceEpoch()}, &id);
             m_taskId = id;
         }
+        // 无检查点 = 全新开始：清掉该行可能遗留的旧断点
+        if (!resumed)
+            m_deps.db->execute(QStringLiteral("UPDATE tasks SET context_json=NULL WHERE id=?"),
+                               {m_taskId});
     } else {
         m_taskId = taskId;
+    }
+
+    if (auto lg = logutil::logger()) {
+        if (resumed)
+            lg->info("任务 #{} 断点续跑：从第 {} 轮恢复（{} 条历史，已耗 {} tokens）", m_taskId,
+                     m_round, m_history.size(), m_breaker.tokens());
     }
 
     emit taskStarted(goal);
     if (m_deps.events)
         m_deps.events->append(QStringLiteral("task_status"), m_taskId,
-                              QJsonObject{{"status", "started"}, {"goal", goal}});
+                              QJsonObject{{"status", resumed ? "resumed" : "started"}, {"goal", goal}});
     setState(State::Planning);
     runRound();
 }
@@ -194,6 +226,7 @@ void AgentLoop::resume() {
 
 void AgentLoop::enterPaused() {
     m_paused = true;
+    writeCheckpoint(); // 挂起行携带断点，重启后可续跑
     setState(State::Paused);
     if (m_deps.db)
         m_deps.db->execute(QStringLiteral("UPDATE tasks SET status='paused' WHERE id=?"), {m_taskId});
@@ -201,6 +234,21 @@ void AgentLoop::enterPaused() {
         m_deps.events->append(QStringLiteral("task_status"), m_taskId,
                               QJsonObject{{"status", "paused"}});
     emit taskPaused();
+}
+
+void AgentLoop::writeCheckpoint() {
+    if (!m_deps.db)
+        return;
+    QJsonObject ckpt;
+    ckpt.insert(QStringLiteral("history"), m_history);
+    ckpt.insert(QStringLiteral("round"), m_round);
+    ckpt.insert(QStringLiteral("tier"), static_cast<int>(m_tier));
+    ckpt.insert(QStringLiteral("tokens"), double(m_breaker.tokens()));
+    ckpt.insert(QStringLiteral("last_prompt_tokens"), double(m_lastPromptTokens));
+    ckpt.insert(QStringLiteral("last_reflection"), m_lastReflection);
+    m_deps.db->execute(QStringLiteral("UPDATE tasks SET context_json=? WHERE id=?"),
+                       {QString::fromUtf8(QJsonDocument(ckpt).toJson(QJsonDocument::Compact)),
+                        m_taskId});
 }
 
 void AgentLoop::shutdownRequeue() {
@@ -580,6 +628,8 @@ void AgentLoop::finishToolBatch() {
     }
 
     // ---- 三重熔断保险 ----
+    writeCheckpoint(); // M5-④：每轮末持久化断点（终端态时由 persistTaskEnd 清除）
+
     const Breaker::Reason reason = m_breaker.check();
     if (reason != Breaker::Reason::None) {
         if (m_deps.events)
@@ -808,8 +858,8 @@ void AgentLoop::persistTaskEnd(bool ok, const QString& resultSummary, const QStr
                                      : (m_state == State::Halted ? QStringLiteral("halted")
                                                                  : QStringLiteral("failed")));
     m_deps.db->execute(QStringLiteral(
-        "UPDATE tasks SET status=?, rounds_used=?, tokens_in=?, result_summary=?, failure_reason=?, finished_at=? "
-        "WHERE id=?"),
+        "UPDATE tasks SET status=?, rounds_used=?, tokens_in=?, result_summary=?, failure_reason=?, "
+        "context_json=NULL, finished_at=? WHERE id=?"),
         {status, m_round, m_breaker.tokens(), resultSummary, failureReason,
          QDateTime::currentSecsSinceEpoch(), m_taskId});
 }
