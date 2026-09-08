@@ -1,6 +1,7 @@
 // 权限门实现
 #include "tools/PermissionGate.h"
 #include <QDir>
+#include <QProcess>
 #include <QRegularExpression>
 
 namespace miderforge {
@@ -34,29 +35,75 @@ bool PermissionGate::pathInWorkspace(const QString& absPath, const QString& work
 bool PermissionGate::matchesForbiddenPath(const QString& path) const {
     // 永不解禁：路径含敏感名（踩坑防御：大小写不敏感 + 路径匹配）
     static const QRegularExpression sensitive(
-        QStringLiteral("(credential|secret|token|id_rsa)"),
+        QStringLiteral("(credential|secret|token|id_rsa|id_ed25519|id_ecdsa)"),
         QRegularExpression::CaseInsensitiveOption);
     const QString p = QDir::fromNativeSeparators(path);
     const QString name = p.mid(p.lastIndexOf(QLatin1Char('/')) + 1);
     // .env 家族（.env / .env.local / prod.env 等）
     if (name.contains(QStringLiteral(".env"), Qt::CaseInsensitive))
         return true;
+    // 证书/密钥容器家族
+    static const QRegularExpression keyFile(QStringLiteral("\\.(pem|p12|pfx)$"),
+                                            QRegularExpression::CaseInsensitiveOption);
+    if (keyFile.match(name).hasMatch())
+        return true;
+    // 敏感目录（路径组件级）：.ssh / .aws / .kube 下任何文件
+    const QStringList comps = p.split(QLatin1Char('/'), Qt::SkipEmptyParts);
+    for (const QString& c : comps) {
+        if (c.compare(QLatin1String(".ssh"), Qt::CaseInsensitive) == 0
+            || c.compare(QLatin1String(".aws"), Qt::CaseInsensitive) == 0
+            || c.compare(QLatin1String(".kube"), Qt::CaseInsensitive) == 0)
+            return true;
+    }
     return sensitive.match(p).hasMatch();
 }
+
+namespace {
+
+// git push 保护分支检测：token 化解析 refspec，替代单条黑名单正则
+//（正则黑名单不完备（CWE-184）：--force / -u / HEAD:main / refs/heads/main / +main 均须命中）
+bool gitPushHitsProtected(const QString& cmd) {
+    const QStringList tokens =
+        cmd.split(QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
+    int pushIdx = -1;
+    for (int i = 0; i < tokens.size(); ++i) {
+        if (tokens[i].compare(QLatin1String("push"), Qt::CaseInsensitive) == 0) {
+            pushIdx = i;
+            break;
+        }
+    }
+    if (pushIdx < 0)
+        return false;
+    static const QStringList kProtected = {
+        QStringLiteral("main"), QStringLiteral("master"), QStringLiteral("protected")};
+    for (int i = pushIdx + 1; i < tokens.size(); ++i) {
+        const QString t = tokens[i];
+        if (t.startsWith(QLatin1Char('-')))
+            continue; // --force / -u / --force-with-lease 等开关跳过
+        QString ref = t.section(QLatin1Char(':'), -1); // refspec 目标段：HEAD:main → main
+        while (ref.startsWith(QLatin1Char('+')))
+            ref.remove(0, 1); // +main 强推前缀
+        if (ref.startsWith(QStringLiteral("refs/heads/"), Qt::CaseInsensitive))
+            ref = ref.mid(11);
+        for (const QString& b : kProtected)
+            if (ref.compare(b, Qt::CaseInsensitive) == 0)
+                return true;
+    }
+    return false;
+}
+
+} // namespace
 
 QString PermissionGate::hardDenyReason(PermissionGate::Kind kind, const QString& target,
                                        const QString& workspaceRoot) const {
     if (kind == Kind::ReadFile || kind == Kind::WriteFile) {
         if (matchesForbiddenPath(target))
-            return QStringLiteral("路径命中永不解禁清单（credential/secret/.env/token/id_rsa）");
+            return QStringLiteral("路径命中永不解禁清单（credential/secret/.env/token/id_rsa/密钥证书/.ssh）");
     }
     if (kind == Kind::RunCommand) {
         const QString cmd = target.trimmed();
-        // git push 到保护分支
-        static const QRegularExpression pushProtected(
-            QStringLiteral("^git\\s+push\\s+\\S+\\s+(main|master|protected)\\b"),
-            QRegularExpression::CaseInsensitiveOption);
-        if (pushProtected.match(cmd).hasMatch())
+        // git push 到保护分支（token 化解析，见 gitPushHitsProtected 注释）
+        if (gitPushHitsProtected(cmd))
             return QStringLiteral("禁止 git push 到 main/master/protected 分支");
         // 磁盘级操作
         static const QRegularExpression diskLevel(
@@ -64,23 +111,22 @@ QString PermissionGate::hardDenyReason(PermissionGate::Kind kind, const QString&
             QRegularExpression::CaseInsensitiveOption);
         if (diskLevel.match(cmd).hasMatch())
             return QStringLiteral("禁止磁盘级操作");
-        // 递归删除：rd /s、del /s、rmdir /s、rm -r —— 工作区外一律禁止
+        // 递归删除：rd /s、del /s、rmdir /s、rm -r/-rf/-fr、--recursive、Remove-Item -Recurse
+        //（-rf 中 r 后跟字母不构成 \b，必须用"含 r 的短选项"整体匹配，否则 rm -rf 漏拦）
         static const QRegularExpression recursiveDel(
-            QStringLiteral("\\b(rd|rmdir|del|rm|remove-item)\\b[^|;&]*((/s|-r\\b|--recursive\\b|/s\\b))"),
+            QStringLiteral("\\b(rd|rmdir|del|rm|remove-item|ri)\\b[^|;&]*"
+                           "(-[a-z]*r[a-z]*\\b|/s\\b)"),
             QRegularExpression::CaseInsensitiveOption);
         if (recursiveDel.match(cmd).hasMatch()) {
             // 粗策略：命令中任何绝对路径不在工作区内即拒绝；无绝对路径（相对路径钉死工作目录）则放行
-            static const QRegularExpression absPath(QStringLiteral("[A-Za-z]:\\\\[^\\s\"&|;]+"));
+            static const QRegularExpression absPath(
+                QStringLiteral("[A-Za-z]:[\\\\/][^\\s\"&|;]+"));
             auto it = absPath.globalMatch(cmd);
-            bool sawOutside = false;
             while (it.hasNext()) {
                 const QString p = it.next().captured(0);
-                if (!pathInWorkspace(p, workspaceRoot)) {
-                    sawOutside = true;
+                if (!pathInWorkspace(p, workspaceRoot))
                     return QStringLiteral("工作区外递归删除被永久禁止：%1").arg(p);
-                }
             }
-            (void)sawOutside;
         }
     }
     // “以用户身份发送消息”不适用工具通道：邮件仅限任务通知（规格 10）
@@ -101,14 +147,16 @@ PermissionGate::Decision PermissionGate::evaluate(PermissionMode mode, Permissio
     if (kind == Kind::WriteFile) {
         if (mode == PermissionMode::Suggest)
             return Decision::NeedsConfirm; // 仅生成提案需确认
-        if (mode == PermissionMode::AutoEdit)
-            return pathInWorkspace(target, workspaceRoot) ? Decision::Allowed : Decision::Denied;
-        return Decision::Allowed; // Full Access（沙箱内）
+        // AutoEdit 与 FullAccess 一致：写入仅限工作区（最小权限；FullAccess 的“全”
+        // 体现在命令/网络自动放行，而非放开写路径边界）
+        return pathInWorkspace(target, workspaceRoot) ? Decision::Allowed : Decision::Denied;
     }
 
     if (kind == Kind::RunCommand) {
-        // 命令白名单：首词必须在名单内
-        const QString first = target.trimmed().split(QLatin1Char(' ')).value(0).toLower();
+        // 命令白名单：首词必须在名单内（与执行侧同样用 QProcess::splitCommand 解析，
+        // 保证"权限放行 = 可执行"，引号包裹的程序名两侧语义一致）
+        const QStringList parts = QProcess::splitCommand(target.trimmed());
+        const QString first = parts.value(0).toLower();
         if (!commandWhitelist().contains(first))
             return Decision::Denied;
         if (mode == PermissionMode::FullAccess)
