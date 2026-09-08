@@ -9,14 +9,50 @@
 #include "tools/FileTools.h"
 #include "tools/PermissionGate.h"
 #include "tools/ToolRegistry.h"
+#include "util/JsonExtract.h"
 #include "util/Log.h"
 #include <QDateTime>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QRegularExpression>
 #include <QUrl>
 #include <spdlog/spdlog.h>
 
 namespace miderforge {
+
+namespace {
+
+// 工具结果回填上下文的长度护栏：原始结果可达 1MB（≈25 万 token），不截断会一发吃掉任务预算大半
+constexpr int kToolResultHead = 12000;
+constexpr int kToolResultTail = 2000;
+
+QString truncateToolResult(const QString& text) {
+    if (text.size() <= kToolResultHead + kToolResultTail + 60)
+        return text;
+    return text.left(kToolResultHead)
+           + QStringLiteral("\n…[结果过长已截断：完整 %1 字符；如需其余内容请用 list_dir/search_files 分段定位]…\n")
+                 .arg(text.size())
+           + text.right(kToolResultTail);
+}
+
+// 死循环检测签名：剔除数字（行号/时间戳/路径序号）后比较，
+// "错误：第 42 行：未定义 foo" 与 "第 43 行：…" 应判定为同一类连续失败
+QString failureSignature(const QString& text) {
+    static const QRegularExpression digits(QStringLiteral("[0-9]+"));
+    QString sig = text;
+    sig.remove(digits);
+    return sig.simplified().left(200);
+}
+
+// tool_call_id 生成：协议要求全局唯一，而供应商缺省 id 时 index 每轮从 0 起——
+// 不带轮次前缀会跨轮撞 id（LLM 按错误 id 关联到第一轮的结果做决策）
+QString toolCallId(const ToolCallParts& tc, int ordinal, int round) {
+    if (!tc.id.isEmpty())
+        return tc.id;
+    return QStringLiteral("call_r%1_i%2").arg(round).arg(ordinal);
+}
+
+} // namespace
 
 QString AgentLoop::stateName(State s) {
     switch (s) {
@@ -55,6 +91,7 @@ void AgentLoop::start(const QString& goal, qint64 taskId) {
     }
     m_goal = goal;
     m_finalizing = false;
+    m_finalizeRetries = 0;
     m_toolCallsThisTask = 0;
     m_tier = Router::classify(goal); // M4：三档路由按任务语义选档
     m_consecToolFailures = 0;
@@ -63,6 +100,7 @@ void AgentLoop::start(const QString& goal, qint64 taskId) {
     m_failedOver = false;
     m_history = QJsonArray();
     m_round = 0;
+    m_lastReflection.clear();
     m_running = true;
     m_breaker = Breaker(AppContext::instance().limits); // 每任务独立预算（设置页可改）
     m_gate.resetSessionGrants(); // 决策: "总是允许"随任务失效（会话粒度的保守实现）
@@ -111,6 +149,10 @@ void AgentLoop::runRound() {
     emit roundChanged(m_round, m_breaker.limits().maxRounds);
     setState(State::Planning);
 
+    // 故障转移冷却回切：距上次切换超过冷却期的任务先试主供应商（切换机制仍待命，再失败会再次转移）
+    if (m_deps.providers)
+        m_deps.providers->maybeRestorePrimary();
+
     const ProviderConfig* provider = m_deps.providers ? m_deps.providers->activeProvider() : nullptr;
     if (!provider) {
         m_running = false;
@@ -154,8 +196,12 @@ QString AgentLoop::buildSystemPrompt() const {
         if (!l1.isEmpty())
             prompt += QStringLiteral("\n===== L1 核心记忆 =====\n%1\n").arg(l1);
 
-        // 相关记忆：L3 检索 Top5（v1 直接用任务原文做查询；关键词提炼随收尾 LLM 顺带产出）
-        const auto related = m_deps.mem->retrieve(m_goal, 5);
+        // 相关记忆：L3 检索 Top5。查询随轮次演化（RAG 的"动态相关"才有意义）：
+        // 首轮用任务原文；之后混入模型最近的反思/计划文本，避免 25 轮注入同一批常量记忆
+        QString retrievalQuery = m_goal;
+        if (m_round > 1 && !m_lastReflection.isEmpty())
+            retrievalQuery = m_goal + QLatin1Char(' ') + m_lastReflection.left(300);
+        const auto related = m_deps.mem->retrieve(retrievalQuery, 5);
         if (!related.isEmpty()) {
             prompt += QStringLiteral("\n===== 相关记忆 =====\n");
             for (const auto& r : related)
@@ -250,9 +296,10 @@ void AgentLoop::onStreamFinished(const StreamResult& result) {
         assistantMsg.insert("content", result.content);
     if (!result.toolCalls.isEmpty()) {
         QJsonArray calls;
-        for (const auto& tc : result.toolCalls) {
+        for (size_t i = 0; i < result.toolCalls.size(); ++i) {
+            const auto& tc = result.toolCalls[i];
             calls.append(QJsonObject{
-                {"id", tc.id.isEmpty() ? QStringLiteral("call_%1").arg(tc.index) : tc.id},
+                {"id", toolCallId(tc, int(i), m_round)},
                 {"type", "function"},
                 {"function", QJsonObject{
                                  {"name", tc.name},
@@ -264,6 +311,10 @@ void AgentLoop::onStreamFinished(const StreamResult& result) {
     }
     m_history.append(assistantMsg);
 
+    // 记录本轮模型正文（后续轮次的记忆检索查询用它演化，见 buildSystemPrompt）
+    if (!result.content.isEmpty())
+        m_lastReflection = result.content;
+
     // ---- 纯文本答复：进入收尾流程（规格 9：成败都走） ----
     if (result.toolCalls.isEmpty()) {
         beginFinalize(true, result.content);
@@ -272,8 +323,9 @@ void AgentLoop::onStreamFinished(const StreamResult& result) {
 
     // ---- 工具批：逐个过权限门后执行 ----
     setState(State::Executing);
-    for (const auto& tc : result.toolCalls) {
-        const QString callId = tc.id.isEmpty() ? QStringLiteral("call_%1").arg(tc.index) : tc.id;
+    for (size_t i = 0; i < result.toolCalls.size(); ++i) {
+        const auto& tc = result.toolCalls[i];
+        const QString callId = toolCallId(tc, int(i), m_round);
         emit toolCallStarted(callId, tc.name, tc.arguments);
 
         PermissionGate::Kind kind = PermissionGate::Kind::ReadFile;
@@ -376,6 +428,8 @@ void AgentLoop::executeToolCall(const QString& callId, const QString& name, cons
     } else {
         resultText = QStringLiteral("错误：工具注册表不可用");
     }
+    // 上下文护栏：回填 LLM 的结果必须截断（1MB 文件全文 ≈ 25 万 token，一发吃穿任务预算）
+    resultText = truncateToolResult(resultText);
     emit toolCallFinished(callId, ok, resultText, ms);
     if (m_deps.events)
         m_deps.events->append(QStringLiteral("tool_result"), m_taskId,
@@ -387,7 +441,7 @@ void AgentLoop::executeToolCall(const QString& callId, const QString& name, cons
         m_breaker.recordToolSuccess();
         m_consecToolFailures = 0;
     } else {
-        m_breaker.recordToolFailure(resultText.left(200)); // 相同失败文本检测
+        m_breaker.recordToolFailure(failureSignature(resultText)); // 剔除数字后比对，见 failureSignature
         // M4：同一工具连续失败 2 次 → 升档（重试 2 次后自动升档，规格 8）
         ++m_consecToolFailures;
         if (m_consecToolFailures >= 2 && !m_tierEscalated
@@ -509,25 +563,13 @@ QString AgentLoop::buildFinalizePrompt(bool ok, const QString& summaryOrReason) 
 
 void AgentLoop::onFinalizeFinished(const StreamResult& result) {
     m_finalizing = false;
-    QString extracted;
     if (!result.aborted) {
-        // 从回复中提取首个 JSON 对象（容错 markdown 围栏）
-        const QString text = result.content;
-        const int l = int(text.indexOf(QLatin1Char('{')));
-        const int r = int(text.lastIndexOf(QLatin1Char('}')));
-        if (l >= 0 && r > l) {
-            QJsonParseError err{};
-            const QJsonObject obj = QJsonDocument::fromJson(text.mid(l, r - l + 1).toUtf8(), &err).object();
-            if (err.error == QJsonParseError::NoError)
-                extracted = QString::fromUtf8(QJsonDocument(obj).toJson(QJsonDocument::Compact));
-            finalizeTaskWrites(obj);
-        } else {
-            finalizeTaskWrites(QJsonObject());
-        }
+        // 结构化提取：括号深度扫描 + 字符串感知，容忍围栏/前后闲话/中间示例对象
+        const QJsonObject obj = jsonextract::extractObject(result.content).object();
+        finalizeTaskWrites(obj); // 解析失败时 obj 为空 → 走兜底字段，绝不丢任务结局
     } else {
         finalizeTaskWrites(QJsonObject()); // 用户在收尾阶段取消：只落盘基础结果
     }
-    (void)extracted;
 }
 
 void AgentLoop::finalizeTaskWrites(const QJsonObject& parsed) {
@@ -620,6 +662,21 @@ void AgentLoop::onStreamFailed(const QString& error, int httpCode, bool willRetr
         return;
     if (willRetry) {
         emit streamRetrying(error);
+        return;
+    }
+    // 收尾阶段传输失败：任务本身已跑完，结局不得被改写成失败。
+    // 重试一次收尾调用；仍失败则空 JSON 兜底落盘（丢提炼产物，保任务状态与基础记忆）
+    if (m_finalizing) {
+        if (m_finalizeRetries < 1) {
+            ++m_finalizeRetries;
+            m_finalizing = false;
+            if (auto lg = logutil::logger())
+                lg->warn("收尾调用传输失败，重试一次：{}", error.toStdString());
+            beginFinalize(m_finalizeOk, m_finalizeSummary);
+            return;
+        }
+        m_finalizing = false;
+        finalizeTaskWrites(QJsonObject());
         return;
     }
     const int failuresBefore = m_transportFailures;

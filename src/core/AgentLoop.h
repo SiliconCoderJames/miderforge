@@ -112,6 +112,8 @@ private:
     bool m_finalizing = false;      // 收尾 LLM 调用进行中
     bool m_finalizeOk = false;      // 本次收尾对应的任务结局
     QString m_finalizeSummary;      // 结局摘要（熔断原因或最终答复）
+    int m_finalizeRetries = 0;      // 收尾调用传输失败重试次数（上限 1，见 onStreamFailed）
+    QString m_lastReflection;       // 模型最近一轮正文（后续轮次记忆检索的演化查询）
     int m_toolCallsThisTask = 0;    // 自沉淀判定：工具调用 ≥5 次且成功
     // M4 路由与故障转移
     Router::Tier m_tier = Router::Tier::Main;
