@@ -15,6 +15,8 @@ public:
     explicit Breaker(const Limits& limits = Limits()) : m_limits(limits) {}
 
     void beginRound() { ++m_round; }
+    // M5-④ 断点续跑：恢复上一进程已消耗的轮数（否则熔断预算凭空多出一截）
+    void restoreRounds(int n) { m_round = n; }
     void addTokens(long long n) { m_tokens += n; }
 
     // 工具失败结果登记：连续相同失败文本计数；成功/不同失败均清零

@@ -136,6 +136,7 @@ void AgentLoop::beginTask(const QString& goal, qint64 taskId, const QJsonObject&
         m_lastReflection = checkpoint.value(QStringLiteral("last_reflection")).toString();
         const qint64 tokens = qint64(checkpoint.value(QStringLiteral("tokens")).toDouble());
         m_breaker.addTokens(tokens > 0 ? tokens : 0);
+        m_breaker.restoreRounds(m_round); // 熔断轮数与任务轮数同步恢复（自审发现：漏恢复会多出一截预算）
         m_lastPromptTokens = qint64(checkpoint.value(QStringLiteral("last_prompt_tokens")).toDouble());
     }
 
