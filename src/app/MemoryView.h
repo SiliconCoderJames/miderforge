@@ -1,6 +1,7 @@
 // 记忆视图（规格 4.6）：顶栏搜索（FTS5 回车触发）+类型过滤；左列表（类型/时间/重要度★）；右详情编辑器；
 // 底部 L1 核心记忆专用编辑入口与 token 占用
 #pragma once
+#include "core/AdjudicationService.h"
 #include "memory/MemoryManager.h"
 #include <QComboBox>
 #include <QLabel>
@@ -16,7 +17,7 @@ namespace miderforge {
 class MemoryView : public QWidget {
     Q_OBJECT
 public:
-    MemoryView(MemoryManager* mem, QWidget* parent = nullptr);
+    MemoryView(MemoryManager* mem, AdjudicationService* adjudicator, QWidget* parent = nullptr);
 
 public slots:
     void reload(); // 重新拉取列表（含 L1 占用）
@@ -34,6 +35,7 @@ private:
     void showL1Editor(const QString& current, qint64 tokens);
 
     MemoryManager* m_mem = nullptr;
+    AdjudicationService* m_adjudicator = nullptr; // 矛盾扫描 v2：可空（未接服务则隐藏 AI 按钮）
     QLineEdit* m_search = nullptr;
     QComboBox* m_typeFilter = nullptr;
     QListWidget* m_list = nullptr;

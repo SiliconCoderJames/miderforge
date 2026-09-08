@@ -68,4 +68,4 @@ token 记账口径为**增量制**：每轮只计「本轮新增输入（本轮 
 - ~~淘汰策略升级：L2 的 FIFO 降权升级为评分制~~ ✅ 已完成（2026-09-09，含"高价值旧摘要不被挤掉"回归单测）
 - ~~跨层预取：任务开始时按目标预取相关技能~~ ✅ 已完成（2026-09-09，`searchRelevant` 拆词 OR + CJK 滑窗，提示词 ⭐ 前排标注；只做注意力预取、不全文注入，保持渐进披露与统计诚实）
 - ~~记忆一致性检查~~ ✅ v1 已完成（2026-09-09）：**确定性候选对检测 + 人工裁决**。`findContradictionCandidates` 用字符三元组 Dice 相似度（中文友好、免分词）找出事实类记忆中"高度相似但不相同"（0.35≤dice≤0.95）的对；记忆视图「🔍 矛盾扫描」按钮人工裁决归档哪条。
-- **矛盾扫描 v2（LLM 语义裁决）方案**：在 v1 候选对之上，把配对内容批量交给 LLM 判定 `contradiction|duplicate|complement` 三态并给出理由；复用收尾链的独立 ChatClient 实例（与 AgentLoop 互不抢占），解析复用 `jsonextract`；三态中仅 `contradiction` 弹裁决卡，`duplicate` 建议自动归档旧者，`complement` 忽略。设计已定，待实现。
+- **矛盾扫描 v2（LLM 语义裁决）** ✅ 已实现（2026-09-09）：`AdjudicationService` 持独立 ChatClient 实例（不与 AgentLoop 主链路抢占），判定走 fast 档；`parseVerdicts` 纯逻辑解析（jsonextract 提取 + 标签白名单 contradiction/duplicate/complement + id 双向对齐候选对 + 同对首条胜出，幻觉 id 与非法标签分别过滤/归 unknown）；UI 列表前缀标注 [矛盾]/[重复]/[互补]，AI 失败可完全降级回人工裁决。

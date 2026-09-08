@@ -12,7 +12,8 @@
 
 namespace miderforge {
 
-MemoryView::MemoryView(MemoryManager* mem, QWidget* parent) : QWidget(parent), m_mem(mem) {
+MemoryView::MemoryView(MemoryManager* mem, AdjudicationService* adjudicator, QWidget* parent)
+    : QWidget(parent), m_mem(mem), m_adjudicator(adjudicator) {
     auto* rootLay = new QVBoxLayout(this);
     rootLay->setContentsMargins(12, 10, 12, 10);
     rootLay->setSpacing(8);
@@ -203,12 +204,63 @@ void MemoryView::onScanContradictions() {
     connect(archiveA, &QPushButton::clicked, &dlg, [&] { onArchiveSide(true); });
     connect(archiveB, &QPushButton::clicked, &dlg, [&] { onArchiveSide(false); });
     connect(closeBtn, &QPushButton::clicked, &dlg, &QDialog::accept);
+
+    // 矛盾扫描 v2：AI 语义裁决（独立 ChatClient 实例，不与 AgentLoop 主链路抢占）
+    auto* aiStatus = new QLabel(&dlg);
+    aiStatus->setStyleSheet(QStringLiteral("color:%1;font-size:9pt;").arg(theme::colors::textDim.name()));
+    if (m_adjudicator && m_adjudicator->available()) {
+        auto* aiBtn = new QPushButton(QStringLiteral("🤖 AI 语义裁决"), &dlg);
+        aiBtn->setToolTip(QStringLiteral("交由大模型逐对判定：矛盾/重复/互补（走 fast 档）"));
+        connect(aiBtn, &QPushButton::clicked, &dlg, [&, aiBtn] {
+            aiBtn->setEnabled(false);
+            aiStatus->setText(QStringLiteral("AI 裁决中…"));
+            m_adjudicator->judge(pairs);
+        });
+        connect(m_adjudicator, &AdjudicationService::finished, &dlg,
+                [this, aiBtn, aiStatus, &list, &pairs](const QVector<AdjudicationService::Verdict>& verdicts) {
+                    aiBtn->setEnabled(true);
+                    if (verdicts.isEmpty()) {
+                        aiStatus->setText(QStringLiteral("AI 未给出有效判定。"));
+                        return;
+                    }
+                    for (const auto& v : verdicts) {
+                        for (int r = 0; r < list->count(); ++r) {
+                            const auto& p = pairs[r];
+                            if (!((p.idA == v.idA && p.idB == v.idB)
+                                  || (p.idA == v.idB && p.idB == v.idA)))
+                                continue;
+                            QString tag = QStringLiteral("[?] ");
+                            if (v.label == QLatin1String("contradiction")) {
+                                tag = QStringLiteral("[矛盾] ");
+                                list->item(r)->setForeground(QColor(0xe0, 0x6c, 0x60));
+                            } else if (v.label == QLatin1String("duplicate")) {
+                                tag = QStringLiteral("[重复] ");
+                                list->item(r)->setForeground(QColor(0x9d, 0xa2, 0xa6));
+                            } else if (v.label == QLatin1String("complement")) {
+                                tag = QStringLiteral("[互补] ");
+                            }
+                            list->item(r)->setText(tag + list->item(r)->text()
+                                                   + QStringLiteral("  — %1").arg(v.reason));
+                            break;
+                        }
+                    }
+                    aiStatus->setText(QStringLiteral("AI 裁决完成：%1 对已标注。").arg(verdicts.size()));
+                });
+        connect(m_adjudicator, &AdjudicationService::failed, &dlg,
+                [aiBtn, aiStatus](const QString& error) {
+                    aiBtn->setEnabled(true);
+                    aiStatus->setText(QStringLiteral("AI 裁决失败：%1").arg(error));
+                });
+        btnRow->insertWidget(0, aiBtn);
+    }
+
     btnRow->addWidget(archiveA);
     btnRow->addWidget(archiveB);
     btnRow->addStretch(1);
     btnRow->addWidget(closeBtn);
     lay->addWidget(hint);
     lay->addWidget(list, 1);
+    lay->addWidget(aiStatus);
     lay->addLayout(btnRow);
     dlg.exec();
     reload(); // 裁决后刷新主列表

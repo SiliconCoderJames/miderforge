@@ -14,6 +14,7 @@ class QPushButton;
 
 namespace miderforge {
 
+class AdjudicationService;
 class AgentLoop;
 class AuditLogView;
 class ChatClient;
@@ -67,6 +68,7 @@ private:
     QLabel* m_statusMode = nullptr;
     QLabel* m_statusQueue = nullptr;
     QAction* m_stopAction = nullptr;
+    AdjudicationService* m_adjudicator = nullptr; // 矛盾扫描 v2：LLM 语义裁决（独立 ChatClient）
 };
 
 } // namespace miderforge

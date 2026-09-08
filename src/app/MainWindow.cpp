@@ -9,6 +9,7 @@
 #include "app/SkillView.h"
 #include "app/TaskQueueView.h"
 #include "app/Theme.h"
+#include "core/AdjudicationService.h"
 #include "core/AgentLoop.h"
 #include "core/AppContext.h"
 #include "llm/ProviderManager.h"
@@ -38,6 +39,8 @@ MainWindow::MainWindow(ProviderManager* pm, AgentLoop* loop, EventBus* events, D
                        MemoryManager* mem, SkillManager* skills, EmailNotifier* mail, QWidget* parent)
     : QMainWindow(parent), m_pm(pm), m_loop(loop), m_events(events), m_db(db), m_mem(mem),
       m_skills(skills), m_mail(mail) {
+    // 矛盾扫描 v2：独立裁决服务（自带 ChatClient，不与 AgentLoop 主链路抢占）
+    m_adjudicator = new AdjudicationService(pm, this);
     setWindowTitle(QStringLiteral("Miderforge"));
     resize(1440, 900);
     setMinimumSize(1024, 680);
@@ -185,7 +188,7 @@ void MainWindow::buildCentral() {
     m_stack->addWidget(m_sessionView); // 0 会话
     m_stack->addWidget(new TaskQueueView(m_db, m_loop, m_stack)); // 1 任务队列（M2 实装）
     m_stack->addWidget(new SkillView(m_skills, m_stack)); // 2 技能库（M3 实装）
-    m_stack->addWidget(new MemoryView(m_mem, m_stack)); // 3 记忆（M2 实装）
+    m_stack->addWidget(new MemoryView(m_mem, m_adjudicator, m_stack)); // 3 记忆（M2 实装）
     m_stack->addWidget(new ProviderPanel(m_pm, m_stack)); // 4 供应商（M4 实装）
     m_stack->addWidget(new AuditLogView(m_events, m_stack)); // 5 审计日志（M1 实装）
 

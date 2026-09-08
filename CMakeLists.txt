@@ -26,6 +26,7 @@ find_package(doctest CONFIG REQUIRED)
 # 核心静态库：QtCore 级依赖（无 UI），可 headless 复用与测试；单测只链接它（真正脱离 GUI）
 add_library(mider_core STATIC
     src/core/AppContext.h      src/core/AppContext.cpp
+    src/core/AdjudicationService.h src/core/AdjudicationService.cpp
     src/core/AgentLoop.h       src/core/AgentLoop.cpp
     src/core/Breaker.h
     src/core/Router.h          src/core/Router.cpp
@@ -114,6 +115,7 @@ add_executable(mider_tests
     tests/test_skill.cpp
     tests/test_router.cpp
     tests/test_jsonextract.cpp
+    tests/test_adjudication.cpp
 )
 target_link_libraries(mider_tests PRIVATE mider_core Qt6::Network doctest::doctest)
 if(MSVC)
