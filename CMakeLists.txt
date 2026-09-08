@@ -19,19 +19,8 @@ find_package(nlohmann_json CONFIG REQUIRED)
 find_package(spdlog CONFIG REQUIRED)
 find_package(doctest CONFIG REQUIRED)
 
-# 核心静态库：业务逻辑与 UI 可复用；单测直接链接它（单测可脱离 GUI 运行）
+# 核心静态库：QtCore 级依赖（无 UI），可 headless 复用与测试；单测只链接它（真正脱离 GUI）
 add_library(mider_core STATIC
-    src/app/Theme.h            src/app/Theme.cpp
-    src/app/ChatWidgets.h      src/app/ChatWidgets.cpp
-    src/app/SessionView.h      src/app/SessionView.cpp
-    src/app/AuditLogView.h     src/app/AuditLogView.cpp
-    src/app/MemoryView.h       src/app/MemoryView.cpp
-    src/app/SkillView.h        src/app/SkillView.cpp
-    src/app/TaskQueueView.h    src/app/TaskQueueView.cpp
-    src/app/MainWindow.h       src/app/MainWindow.cpp
-    src/app/FirstRunWizard.h   src/app/FirstRunWizard.cpp
-    src/app/ProviderPanel.h    src/app/ProviderPanel.cpp
-    src/app/SettingsDialog.h   src/app/SettingsDialog.cpp
     src/core/AppContext.h      src/core/AppContext.cpp
     src/core/AgentLoop.h       src/core/AgentLoop.cpp
     src/core/Breaker.h
@@ -54,6 +43,7 @@ add_library(mider_core STATIC
     src/tools/PermissionGate.h src/tools/PermissionGate.cpp
     src/util/AppDirs.h         src/util/AppDirs.cpp
     src/util/Dpapi.h           src/util/Dpapi.cpp
+    src/util/JsonExtract.h     src/util/JsonExtract.cpp
     src/util/Log.h             src/util/Log.cpp
     src/util/Tokens.h          src/util/Tokens.cpp
 )
@@ -73,17 +63,33 @@ set_source_files_properties(third_party/sqlite-vec/sqlite-vec.c PROPERTIES
     COMPILE_DEFINITIONS "SQLITE_CORE;SQLITE_VEC_STATIC"
 )
 target_link_libraries(mider_core PUBLIC
-    Qt6::Widgets CURL::libcurl nlohmann_json::nlohmann_json spdlog::spdlog)
+    Qt6::Core Qt6::Network CURL::libcurl nlohmann_json::nlohmann_json spdlog::spdlog)
 if(WIN32)
     # DPAPI（CryptProtectData/CryptUnprotectData）
     target_link_libraries(mider_core PUBLIC crypt32)
 endif()
 
+# UI 静态库：Qt Widgets 界面层（深色主题、六大面板、向导）
+add_library(mider_ui STATIC
+    src/app/Theme.h            src/app/Theme.cpp
+    src/app/ChatWidgets.h      src/app/ChatWidgets.cpp
+    src/app/SessionView.h      src/app/SessionView.cpp
+    src/app/AuditLogView.h     src/app/AuditLogView.cpp
+    src/app/MemoryView.h       src/app/MemoryView.cpp
+    src/app/SkillView.h        src/app/SkillView.cpp
+    src/app/TaskQueueView.h    src/app/TaskQueueView.cpp
+    src/app/MainWindow.h       src/app/MainWindow.cpp
+    src/app/FirstRunWizard.h   src/app/FirstRunWizard.cpp
+    src/app/ProviderPanel.h    src/app/ProviderPanel.cpp
+    src/app/SettingsDialog.h   src/app/SettingsDialog.cpp
+)
+target_link_libraries(mider_ui PUBLIC mider_core Qt6::Widgets)
+
 # 主程序
 qt_add_executable(miderforge WIN32 src/main.cpp)
-target_link_libraries(miderforge PRIVATE mider_core)
+target_link_libraries(miderforge PRIVATE mider_ui)
 
-# 单元测试（doctest）
+# 单元测试（doctest）：只依赖 mider_core，不拉 Widgets
 add_executable(mider_tests
     tests/test_main.cpp
     tests/test_sse.cpp
@@ -95,6 +101,7 @@ add_executable(mider_tests
     tests/test_memory.cpp
     tests/test_skill.cpp
     tests/test_router.cpp
+    tests/test_jsonextract.cpp
 )
 target_link_libraries(mider_tests PRIVATE mider_core Qt6::Network doctest::doctest)
 if(MSVC)
