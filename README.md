@@ -2,9 +2,9 @@
 
 # 🔨 Miderforge
 
-**云端大脑 · 本地身体 — 运行在你自己电脑上的 AI 编码 Agent**
+**会成长的桌面 AI Agent — 记忆 · 技能库 · 类人学习 · 自我成长**
 
-*一款 Qt 6 桌面端 AI Agent：多厂商 LLM 当大脑，驻留本机的 C++ 进程当手脚。*
+*云端大脑 + 本地身体：多厂商 LLM 当大脑，驻留 Windows 的 C++ 进程当手脚；每完成一个任务，它就更懂你和你的项目一点。*
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-4a8cff.svg)](LICENSE)
 [![C++](https://img.shields.io/badge/C%2B%2B-20-00599C.svg?logo=c%2B%2B&logoColor=white)](https://isocpp.org)
@@ -24,7 +24,9 @@
 
 ## 📖 简介
 
-Miderforge 是一款可长期驻留的 Windows 桌面 AI Agent。你用中文下达目标，它自主进行多轮 **规划 → 执行 → 观察 → 反思**，以受限方式操作本机文件与命令，直到任务完成——人不在电脑前也能跑完，结束后通过邮件与托盘通知你。
+Miderforge 是一款可长期驻留的 Windows 桌面 AI Agent。你用中文下达目标，它自主进行多轮 **规划 → 执行 → 观察 → 反思**，以受限方式操作本机文件与命令，直到任务完成。
+
+而它真正的差异化在**成长性**：任务结束后自动提炼「结果摘要 → 会话摘要 → 核心记忆改写 → 失败教训」沉淀进分层记忆；方案成熟的任务自动固化为一项可复用技能。下次遇到同类目标，它会先想起你的偏好、项目背景与上次的坑——**干得越多，越懂你，越熟练**。
 
 三大核心资产（项目的灵魂）：
 
@@ -59,13 +61,21 @@ Miderforge 是一款可长期驻留的 Windows 桌面 AI Agent。你用中文下
 
 ## ✨ 功能特性
 
+**🧠 记忆与成长（核心卖点）**
+
+- 🧠 **分层记忆** — L0–L3：核心记忆常驻注入、会话摘要滚动、档案库 FTS5 全文检索，Agent 越用越懂你
+- 🧰 **技能库自沉淀** — 成功任务方案自动固化为 `SKILL.md`，带使用统计与自动降权，下次同类任务渐进披露加载
+- 🌱 **类人学习闭环** — 每任务结束由 LLM 提炼摘要/教训/偏好改写入库，下个任务动态检索注入，形成"干得越多越熟练"的正循环
+
+**🤖 执行与安全**
+
 - 🤖 **自主 Agent 循环** — ReAct 状态机，工具调用、轮数熔断、token 预算、死循环检测三重保险
-- 🌊 **流式对话** — 思考过程与正文分栏展示，SSE 分帧解析，断线指数退避自动重试
-- 🔀 **多供应商路由** — 智谱 / DeepSeek 直连（无中间商），fast/main/flagship 三档路由，连续失败自动故障转移
+- 🔀 **多供应商路由** — 智谱 / DeepSeek 直连（无中间商），fast/main/flagship 三档路由，连续失败自动故障转移，冷却后自动回切
 - 🔐 **三档权限** — Suggest / Auto Edit / Full Access（Codex 式），永不解禁清单，API Key 由 Windows DPAPI 加密存储
 - 🛡️ **Windows 沙箱** — 权限门 + QProcess 环境剥离 + Job Object（超时/内存上限/退出连带终止）
 - 📋 **任务队列** — 定时任务、每日重复、执行中目标自动排队，异步完成通知
 - 📧 **通知触达** — 任务完成/失败/熔断 → SMTP 邮件（RFC 2047 中文标题）+ 系统托盘气泡
+- 🌊 **流式对话** — 思考过程与正文分栏展示，SSE 分帧解析，断线指数退避自动重试
 - 🌓 **深色主题 Qt 界面** — 会话视图 / 任务队列 / 技能库 / 记忆 / 供应商 / 审计日志六大面板
 
 ## ⚠️ 安全须知
@@ -141,7 +151,7 @@ Miderforge/
 │   ├── db/         # SQLite 打开/迁移/FTS5 挂载
 │   ├── notify/     # SMTP 邮件、托盘通知
 │   └── util/       # DPAPI、日志、目录、token 估算
-├── tests/          # doctest 单元测试（可脱离 GUI 运行）
+├── tests/          # doctest 单元测试（只依赖核心库，可脱离 GUI 运行）
 ├── docs/           # CONFIG.md 配置指南 · ACCEPTANCE.md 验收清单 · 界面截图
 ├── third_party/    # SQLite amalgamation · sqlite-vec（内置源码）
 └── config/         # providers.template.json（唯一入库的配置模板）
@@ -157,7 +167,7 @@ Miderforge/
 | **M3** | 技能库 + 自沉淀闭环 | ✅ |
 | **M4** | 三档路由 + 故障转移 + 托盘 + 邮件通知 | ✅ |
 
-> 单元测试 53 个（doctest，可脱离 GUI 运行）全部通过。涉及真实 API Key / SMTP 授权码的端到端项请在配置后自行复核，明细见 [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md)。
+> 单元测试 69 个用例（doctest，只依赖 mider_core、可完全脱离 GUI 运行）全部通过。涉及真实 API Key / SMTP 授权码的端到端项请在配置后自行复核，明细见 [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md)。
 
 ## 🤝 贡献
 

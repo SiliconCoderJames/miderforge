@@ -39,3 +39,20 @@
 - [ ] 把 active 供应商 base_url 改为不可达地址 → 连续 2 次失败自动切 DeepSeek，状态灯变红，events 有 provider_switch（switchToFailover 已实现；端到端待真实 Key）
 - [ ] 收件箱收到任务完成邮件，中文标题不乱码（RFC 2047 B 编码 + smtps 已实现；待真实 SMTP 授权码人工验证）
 - [ ] 设定 1 分钟后的定时任务 → 到点自动执行 → 托盘气泡弹出（Scheduler 20s 轮询+托盘气泡已实现；待人工验证）
+
+## 已知边界与设计取舍（2026-09-08 外部审查复盘）
+
+32 项外部审查中 28 项已修复（安全批 / Agent 循环批 / 网络批 / 持久化批，含新增对抗单测）。
+以下 5 项经评估属设计权衡或明确记录的已知边界，暂不改动，留作 Roadmap 输入：
+
+| # | 事项 | 处置结论 |
+|---|---|---|
+| 12 | 任务队列为串行（一次一个任务） | 有意设计：README 如实描述"执行中目标自动排队"；并行执行涉及工具互斥与权限卡片并发，待 Roadmap |
+| 14 | WAL 下读者可能读到不含最新写入的快照 | WAL 快照语义本身，非缺陷；已在 Database.h 注释说明 |
+| 17 | FTS5 trigram 对 <3 字符中文词召回依赖 LIKE 兜底（无索引全扫） | 兜底已修复通配符转义并支持多词 AND；向量检索通道（sqlite-vec 已加载）留待后续启用 |
+| 29 | http_fetch 同步执行于 GUI 线程（最长 15s 冻结） | 该工具默认全部档位需用户确认后才执行；迁移工作线程与工具层整体线程化（含 #30）同批处理 |
+| 30 | CommandTools 用嵌套 QEventLoop 等待进程 | 已加 ExcludeUserInputEvents 缓解输入事件重入；根治需把工具执行移出 GUI 线程，与 #29 同一 Roadmap 项 |
+
+同时记录两条锁层级/线程纪律约束（防止后续扩展引入回归）：
+- **锁顺序**：`EventBus::s_mutex → Database::m_writeMutex`，任何代码不得反向嵌套（EventBus.cpp / Database.h 注释）。
+- **AppContext**：`todayTokens` 已原子化；其余成员仍约定 GUI 线程读写，引入工作线程前需整体审查（AppContext.h 注释）。
