@@ -24,6 +24,10 @@ public:
     void newSession();
     void focusInput();
 
+protected:
+    // 输入框键位：Enter 发送（ZCode/Codex 习惯）、Shift+Enter 换行、Ctrl+Enter 兼容旧习惯
+    bool eventFilter(QObject* obj, QEvent* ev) override;
+
 signals:
     void queueCountChanged(int n);
     // 权限模式变更（输入区下拉框 → 工具栏同步）

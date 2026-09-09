@@ -111,11 +111,12 @@ QWidget* SessionView::buildInputArea() {
     lay->setSpacing(8);
 
     m_input = new QPlainTextEdit(frame);
-    m_input->setPlaceholderText(QStringLiteral("输入任务目标，Ctrl+Enter 发送（任务执行中发送将自动入队）"));
+    m_input->setPlaceholderText(QStringLiteral("输入任务目标，Enter 发送、Shift+Enter 换行（任务执行中发送将自动入队）"));
     m_input->setFixedHeight(66); // 3 行高
     m_input->setStyleSheet(QStringLiteral(
         "QPlainTextEdit{background-color:%1;color:%2;border:1px solid #3d4045;border-radius:6px;padding:4px;}")
                                .arg(theme::colors::window.name(), theme::colors::text.name()));
+    m_input->installEventFilter(this);
 
     m_permCombo = new QComboBox(frame);
     m_permCombo->addItems({QStringLiteral("Suggest"), QStringLiteral("Auto Edit"), QStringLiteral("Full Access")});
@@ -146,9 +147,6 @@ QWidget* SessionView::buildInputArea() {
         m_pauseBtn->setText(QStringLiteral("暂停"));
     });
 
-    auto* sendShortcut = new QShortcut(QKeySequence(QStringLiteral("Ctrl+Return")), m_input);
-    connect(sendShortcut, &QShortcut::activated, this, &SessionView::onSend);
-
     lay->addWidget(m_input, 1);
     auto* rightLay = new QVBoxLayout();
     rightLay->setSpacing(6);
@@ -162,6 +160,19 @@ QWidget* SessionView::buildInputArea() {
     rightLay->addLayout(btnRow);
     lay->addLayout(rightLay);
     return frame;
+}
+
+bool SessionView::eventFilter(QObject* obj, QEvent* ev) {
+    if (obj == m_input && ev->type() == QEvent::KeyPress) {
+        auto* ke = static_cast<QKeyEvent*>(ev);
+        if (ke->key() == Qt::Key_Return || ke->key() == Qt::Key_Enter) {
+            if (ke->modifiers() & Qt::ShiftModifier)
+                return QWidget::eventFilter(obj, ev); // Shift+Enter 换行，交回默认处理
+            onSend(); // Enter / Ctrl+Enter 发送（空文本由 onSend 自行忽略）
+            return true;
+        }
+    }
+    return QWidget::eventFilter(obj, ev);
 }
 
 ToolCallCard* SessionView::makeCard(const QString& callId, const QString& toolName) {
