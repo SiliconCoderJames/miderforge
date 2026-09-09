@@ -154,7 +154,7 @@ Miderforge/
 
 Miderforge 是一只**单体的蜜蜂**。当你的桌面上同时跑着多个 AI Agent——Claude Code、
 Codex CLI、Cursor、其他命令行 Agent……它们彼此并不认识：各自记笔记、踩别人踩过的坑、
-无法把活儿委托出去。同作者的 [**AgentHive**](https://github.com/SiliconCoderJames/AGENT-)
+无法把活儿委托出去。同作者的 [**AgentHive**](https://github.com/SiliconCoderJames/AgentHive)
 补上这一环：一个纯本地的多 Agent 协作中枢（C++20 / Qt 6 / SQLite WAL / sqlite-vec，
 同款技术栈），提供共享知识库、技能市场、共享用户记忆、异步任务委托、错误互助与
 Token 观测；服务只监听 `127.0.0.1`，数据不出本机。
