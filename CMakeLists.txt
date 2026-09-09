@@ -36,6 +36,7 @@ add_library(mider_core STATIC
     src/llm/HttpClient.h       src/llm/HttpClient.cpp
     src/llm/ToolCallAccumulator.h src/llm/ToolCallAccumulator.cpp
     src/llm/ChatClient.h       src/llm/ChatClient.cpp
+    src/llm/EmbeddingClient.h  src/llm/EmbeddingClient.cpp
     src/llm/ProviderManager.h  src/llm/ProviderManager.cpp
     src/db/Database.h          src/db/Database.cpp
     src/memory/MemoryManager.h src/memory/MemoryManager.cpp
@@ -50,6 +51,7 @@ add_library(mider_core STATIC
     src/util/Dpapi.h           src/util/Dpapi.cpp
     src/util/JsonExtract.h     src/util/JsonExtract.cpp
     src/util/Log.h             src/util/Log.cpp
+    src/util/NetGuard.h        src/util/NetGuard.cpp
     src/util/Tokens.h          src/util/Tokens.cpp
 )
 target_include_directories(mider_core PUBLIC
@@ -116,6 +118,7 @@ add_executable(mider_tests
     tests/test_router.cpp
     tests/test_jsonextract.cpp
     tests/test_adjudication.cpp
+    tests/test_embedding.cpp
 )
 target_link_libraries(mider_tests PRIVATE mider_core Qt6::Network doctest::doctest)
 if(MSVC)

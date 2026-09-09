@@ -19,6 +19,13 @@ struct ProviderConfig {
     bool configured = false;     // 是否持有可解密的 API Key
 };
 
+// M6-A 语义检索的嵌入配置：复用某个供应商的 base_url 与 API Key，不引入第二套密钥
+struct EmbeddingConfig {
+    bool enabled = false;
+    QString provider; // 如 "zhipu"；对应 providers 数组里的 name
+    QString model = QStringLiteral("embedding-3");
+};
+
 class ProviderManager : public QObject {
     Q_OBJECT
 public:
@@ -41,6 +48,11 @@ public:
     const ProviderConfig* failoverProvider() const;
     // 三档映射；缺档回退 main 档（最简可行）
     QString modelForTier(const ProviderConfig& cfg, const QString& tier) const;
+
+    // ---- M6-A 嵌入配置（providers.json 顶层 "embedding" 节） ----
+    const EmbeddingConfig& embedding() const { return m_embedding; }
+    // 更新嵌入配置并写盘；embedding 节随 writeJson 全量回写（任何 saveKey/setActive 都不会抹掉它）
+    bool setEmbeddingConfig(const EmbeddingConfig& cfg);
 
     const std::vector<ProviderConfig>& all() const { return m_providers; }
 
@@ -66,6 +78,7 @@ private:
 
     std::vector<ProviderConfig> m_providers;
     QString m_active;
+    EmbeddingConfig m_embedding;
     bool m_failedOver = false;
     QString m_primaryName;        // 故障转移前的主供应商（冷却回切用）
     qint64 m_failoverSince = 0;   // 故障转移发生时刻（unix 秒）

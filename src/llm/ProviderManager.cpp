@@ -52,6 +52,13 @@ bool ProviderManager::load() {
     const QJsonDocument doc = QJsonDocument::fromJson(f.readAll());
     const QJsonObject root = doc.object();
     m_active = root.value("active").toString();
+    // M6-A 嵌入配置（顶层可选节；缺省=禁用）
+    const QJsonObject emb = root.value("embedding").toObject();
+    m_embedding.enabled = emb.value("enabled").toBool();
+    m_embedding.provider = emb.value("provider").toString();
+    const QString embModel = emb.value("model").toString();
+    if (!embModel.isEmpty())
+        m_embedding.model = embModel;
     const QJsonArray arr = root.value("providers").toArray();
     for (const auto& v : arr) {
         ProviderConfig cfg = parseOne(v.toObject());
@@ -86,6 +93,8 @@ bool ProviderManager::initializeFromTemplate() {
     m_providers.push_back(std::move(zhipu));
     m_providers.push_back(std::move(deepseek));
     m_active = QStringLiteral("zhipu");
+    // 语义检索默认随 zhipu 开启：用户在向导填入 zhipu Key 后即可用（无 Key 时检索自动降级纯 FTS5）
+    m_embedding = EmbeddingConfig{true, QStringLiteral("zhipu"), QStringLiteral("embedding-3")};
     return writeJson();
 }
 
@@ -118,6 +127,12 @@ bool ProviderManager::writeJson() const {
     QJsonObject root;
     root.insert("active", m_active);
     root.insert("providers", arr);
+    // 嵌入配置节必须随每次写盘回写：漏写会让 saveKey/setActive 等任何写路径静默抹掉用户的 embedding 配置
+    QJsonObject emb;
+    emb.insert("enabled", m_embedding.enabled);
+    emb.insert("provider", m_embedding.provider);
+    emb.insert("model", m_embedding.model);
+    root.insert("embedding", emb);
     QFile f(appdirs::file(QString::fromLatin1(kConfigRel)));
     if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
         return false;
@@ -153,6 +168,11 @@ bool ProviderManager::setActive(const QString& providerName) {
     if (!provider(providerName))
         return false;
     m_active = providerName;
+    return writeJson();
+}
+
+bool ProviderManager::setEmbeddingConfig(const EmbeddingConfig& cfg) {
+    m_embedding = cfg;
     return writeJson();
 }
 

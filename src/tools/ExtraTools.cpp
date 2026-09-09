@@ -3,6 +3,7 @@
 #include "core/AppContext.h"
 #include "tools/ToolRegistry.h"
 #include "util/AppDirs.h"
+#include "util/NetGuard.h"
 #include <QDir>
 #include <QEventLoop>
 #include <QFile>
@@ -82,7 +83,8 @@ bool checkFetchUrl(const QString& url, QString* pinnedIp, QString* err) {
     }
     QString firstGlobal;
     for (const QHostAddress& addr : resolved.addresses()) {
-        if (addr.isGlobal()) {
+        if (netguard::isPublicIp(addr)) { // 严格公网判定（Qt isGlobal 漏 RFC1918，见 NetGuard.h）
+
             if (firstGlobal.isEmpty())
                 firstGlobal = addr.toString();
         } else {

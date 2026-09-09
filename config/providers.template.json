@@ -1,5 +1,10 @@
 {
   "active": "zhipu",
+  "embedding": {
+    "enabled": true,
+    "provider": "zhipu",
+    "model": "embedding-3"
+  },
   "providers": [
     {
       "name": "zhipu",
