@@ -7,6 +7,7 @@
 #include <QDialogButtonBox>
 #include <QHBoxLayout>
 #include <QMessageBox>
+#include <QShowEvent>
 #include <QPushButton>
 #include <QVBoxLayout>
 
@@ -72,6 +73,11 @@ MemoryView::MemoryView(MemoryManager* mem, AdjudicationService* adjudicator, QWi
     m_l1Label->setStyleSheet(QStringLiteral("color:%1;font-size:9pt;").arg(theme::colors::textDim.name()));
     rootLay->addWidget(m_l1Label);
     reload();
+}
+
+void MemoryView::showEvent(QShowEvent* ev) {
+    QWidget::showEvent(ev);
+    reload(); // 切页刷新：任务沉淀/手动变更后所见即最新
 }
 
 void MemoryView::reload() {

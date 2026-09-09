@@ -20,6 +20,10 @@ public:
 public slots:
     void reload();
 
+protected:
+    // 切到本页即重载（任务运行中可能自沉淀技能，回到本页所见即最新）
+    void showEvent(QShowEvent* ev) override;
+
 private slots:
     void onSearchChanged(const QString& text);
     void onSelected();

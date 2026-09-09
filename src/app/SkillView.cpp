@@ -8,6 +8,7 @@
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QShowEvent>
 #include <QVBoxLayout>
 
 namespace miderforge {
@@ -56,6 +57,11 @@ SkillView::SkillView(SkillManager* skills, QWidget* parent) : QWidget(parent), m
     split->addLayout(rightLay, 1);
     lay->addLayout(split, 1);
     reload();
+}
+
+void SkillView::showEvent(QShowEvent* ev) {
+    QWidget::showEvent(ev);
+    reload(); // 切页刷新：任务自沉淀/手动变更后所见即最新
 }
 
 void SkillView::reload() {

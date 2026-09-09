@@ -22,6 +22,10 @@ public:
 public slots:
     void reload(); // 重新拉取列表（含 L1 占用）
 
+protected:
+    // 切到本页即重载（任务运行中会沉淀记忆，回到本页所见即最新）
+    void showEvent(QShowEvent* ev) override;
+
 private slots:
     void onSearch();
     void onFilterChanged();
