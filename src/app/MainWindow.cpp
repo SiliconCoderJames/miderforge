@@ -228,14 +228,15 @@ void MainWindow::buildMenus() {
     newTask->setToolTip(QStringLiteral("任务队列在 M2 里程碑实装"));
 
     QMenu* viewMenu = menuBar()->addMenu(QStringLiteral("视图"));
-    for (int i = 0; i < 6; ++i) {
+    for (int i = 0; i < 7; ++i) { // 含第 7 项「设置」：对话框页，Ctrl+7 直达
         QAction* go = viewMenu->addAction(m_nav->topLevelItem(i)->text(0));
         go->setShortcut(QKeySequence(QStringLiteral("Ctrl+%1").arg(i + 1)));
         connect(go, &QAction::triggered, this, [this, i] { switchNav(i); });
     }
 
     QMenu* toolMenu = menuBar()->addMenu(QStringLiteral("工具"));
-    QAction* wizard = toolMenu->addAction(QStringLiteral("运行首次配置向导…"));
+    QAction* wizard = toolMenu->addAction(QStringLiteral("设置…"));
+    wizard->setToolTip(QStringLiteral("打开设置对话框（同 视图→设置 / Ctrl+7）"));
     connect(wizard, &QAction::triggered, this, &MainWindow::openSettings);
 
     QMenu* helpMenu = menuBar()->addMenu(QStringLiteral("帮助"));
