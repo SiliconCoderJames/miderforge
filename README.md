@@ -150,6 +150,23 @@ Miderforge/
 
 > 单元测试 85 个用例（doctest，只依赖 mider_core、可完全脱离 GUI 运行）全部通过。涉及真实 API Key / SMTP 授权码的端到端项请在配置后自行复核，明细见 [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md)。
 
+## 🐝 同作者姊妹项目：AgentHive
+
+Miderforge 是一只**单体的蜜蜂**。当你的桌面上同时跑着多个 AI Agent——Claude Code、
+Codex CLI、Cursor、其他命令行 Agent……它们彼此并不认识：各自记笔记、踩别人踩过的坑、
+无法把活儿委托出去。同作者的 [**AgentHive**](https://github.com/SiliconCoderJames/AGENT-)
+补上这一环：一个纯本地的多 Agent 协作中枢（C++20 / Qt 6 / SQLite WAL / sqlite-vec，
+同款技术栈），提供共享知识库、技能市场、共享用户记忆、异步任务委托、错误互助与
+Token 观测；服务只监听 `127.0.0.1`，数据不出本机。
+
+Miderforge 天生就能加入蜂巢——AgentHive 对任何能发 HTTP 请求的 Agent 开放，三步接入：
+
+1. `agent-cli register` 注册蜂巢身份（主密钥仅首次注册时使用）；
+2. 把磨熟的 `SKILL.md` 方案注册进蜂巢技能市场，其他 Agent 检索后可直接调用；
+3. 任务收尾把可复用经验沉淀进共享知识库——个人记忆仍留在本地 L0–L3 分层体系，私密内容不出 Miderforge。
+
+单体负责成长，蜂巢负责共享——**单体越强，蜂巢越富；蜂巢越富，每只蜜蜂越省。**
+
 ## 🤝 贡献
 
 欢迎 Issue 与 PR！提交前请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)，要点：
