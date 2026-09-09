@@ -32,6 +32,10 @@ QString likeEscape(QString word) {
     return word;
 }
 
+// 嵌入连续失败熔断阈值：连续 3 次失败即认定网络/服务不可用，本进程内停用语义通道，
+// 只走 FTS5。否则断网时每轮检索都要白等 10s 连接超时（backfill + 查询各一次）
+constexpr int kMaxEmbedFailStreak = 3;
+
 } // namespace
 
 MemoryManager::MemoryManager(Database* db, const QString& l1Path)
@@ -236,6 +240,8 @@ QVector<QPair<qint64, double>> MemoryManager::fuseRRF(const QVector<qint64>& a,
 int MemoryManager::backfillEmbeddings(int maxBatch) {
     if (!m_embedder || !m_embedder->valid() || maxBatch <= 0)
         return 0;
+    if (m_embedFailStreak >= kMaxEmbedFailStreak)
+        return 0; // 已熔断：本进程不再尝试嵌入
     const auto rows = m_db->query(QStringLiteral(
         "SELECT id, content FROM memories WHERE status='active' AND embedding IS NULL "
         "ORDER BY updated_at DESC LIMIT ?"), {maxBatch});
@@ -251,10 +257,15 @@ int MemoryManager::backfillEmbeddings(int maxBatch) {
     QVector<QVector<float>> vecs;
     QString err;
     if (!m_embedder->embed(texts, &vecs, &err)) {
-        if (auto lg = logutil::logger())
-            lg->warn("记忆补嵌入失败（本批 {} 条跳过）：{}", ids.size(), err.toStdString());
+        ++m_embedFailStreak;
+        if (auto lg = logutil::logger()) {
+            lg->warn("记忆补嵌入失败（连续第 {} 次）：{}", m_embedFailStreak, err.toStdString());
+            if (m_embedFailStreak >= kMaxEmbedFailStreak)
+                lg->warn("嵌入连续失败 {} 次，本进程熔断语义通道，检索仅走 FTS5", m_embedFailStreak);
+        }
         return 0;
     }
+    m_embedFailStreak = 0; // 成功即清零，偶发一次网络抖动不会触发熔断
     if (vecs.size() != ids.size()) {
         if (auto lg = logutil::logger())
             lg->warn("记忆补嵌入条数对不上：请求 {} 返回 {}", ids.size(), vecs.size());
@@ -349,11 +360,12 @@ QVector<MemoryManager::MemoryRecord> MemoryManager::retrieve(const QString& rawQ
         recs.insert(c.rec.id, c.rec);
     }
     QVector<qint64> vecIds;
-    if (m_embedder && m_embedder->valid()) {
+    if (m_embedder && m_embedder->valid() && m_embedFailStreak < kMaxEmbedFailStreak) {
         backfillEmbeddings(8); // 渐进补齐缺向量条目；失败静默（FTS 主路不受影响）
         QVector<QVector<float>> qv;
         QString eerr;
         if (m_embedder->embed({q}, &qv, &eerr) && qv.size() == 1 && !qv.front().isEmpty()) {
+            m_embedFailStreak = 0;
             struct VecHit { qint64 id; double sim; };
             std::vector<VecHit> hits;
             for (const auto& row : m_db->query(QStringLiteral(
@@ -379,8 +391,11 @@ QVector<MemoryManager::MemoryRecord> MemoryManager::retrieve(const QString& rawQ
                       [](const VecHit& x, const VecHit& y) { return x.sim > y.sim; });
             for (int i = 0; i < int(hits.size()) && i < 20; ++i)
                 vecIds << hits[i].id;
-        } else if (auto lg = logutil::logger()) {
-            lg->warn("查询嵌入失败，本次检索降级纯 FTS5：{}", eerr.toStdString());
+        } else {
+            ++m_embedFailStreak; // 调用失败或返回不可用向量，同样计入熔断
+            if (auto lg = logutil::logger())
+                lg->warn("查询嵌入失败（连续第 {} 次），本次检索降级纯 FTS5：{}",
+                         m_embedFailStreak, eerr.toStdString());
         }
     }
 

@@ -379,3 +379,45 @@ TEST_CASE("内容更新即向量失效：embedding 置 NULL 等待重嵌（write
         QStringLiteral("SELECT embedding FROM memories WHERE id=?"), {id});
     CHECK(rows2[0].value("embedding").isNull());
 }
+
+TEST_CASE("嵌入熔断：连续失败 3 次后本进程停用语义通道，FTS5 主路不受影响") {
+    MemFixture f;
+    class FailingEmbedder : public miderforge::EmbeddingClient {
+    public:
+        FailingEmbedder()
+            : EmbeddingClient(Config{QStringLiteral("https://stub.test"), {},
+                                     QStringLiteral("stub-embed")}) {}
+        bool embed(const QStringList&, QVector<QVector<float>>*, QString* err) override {
+            ++calls;
+            if (err)
+                *err = QStringLiteral("网络不可达（模拟）");
+            return false;
+        }
+        int calls = 0;
+    };
+    auto stub = std::make_unique<FailingEmbedder>();
+    auto* stubPtr = stub.get();
+    f.mem->setEmbedder(stubPtr);
+    // 一条词面可召回的记录 + 一条只有语义才能召回的记录
+    const qint64 ftsHit = f.mem->addMemory(QStringLiteral("task_lesson"),
+        QStringLiteral("CMake 生成器表达式 learning：生成器表达式在 add_custom_command 里求值时机。"), 0.7);
+    f.mem->addMemory(QStringLiteral("task_lesson"),
+        QStringLiteral("SQLite 死锁的排查教训：写事务锁等待超时导致任务失败。"), 0.8);
+
+    // 第 1 次 retrieve：backfill 失败(+1) + 查询嵌入失败(+1) = 2 次
+    const auto h1 = f.mem->retrieve(QStringLiteral("生成器表达式"), 5);
+    CHECK(stubPtr->calls == 2);
+    REQUIRE_FALSE(h1.empty());
+    CHECK(h1.first().id == ftsHit); // FTS 主路照常
+    // 第 2 次：+2 → 4 次 ≥3 熔断；之后不再调用嵌入
+    (void)f.mem->retrieve(QStringLiteral("生成器表达式"), 5);
+    CHECK(stubPtr->calls == 4);
+    (void)f.mem->retrieve(QStringLiteral("生成器表达式"), 5);
+    (void)f.mem->retrieve(QStringLiteral("生成器表达式"), 5);
+    CHECK(stubPtr->calls == 4); // 熔断后嵌入零调用
+    const auto h3 = f.mem->retrieve(QStringLiteral("生成器表达式"), 5);
+    CHECK(stubPtr->calls == 4);
+    REQUIRE_FALSE(h3.empty());
+    CHECK(h3.first().id == ftsHit);
+    (void)stub.release(); // 进程级测试，交还 OS
+}

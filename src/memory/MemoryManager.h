@@ -100,6 +100,7 @@ private:
     Database* m_db = nullptr;
     QString m_l1Path;
     EmbeddingClient* m_embedder = nullptr; // M6-A 语义检索；nullptr = 纯 FTS5
+    int m_embedFailStreak = 0; // 嵌入连续失败计数（≥3 熔断本进程语义通道，防断网时每轮检索白等超时）
     mutable QDateTime m_lastAgentWrite; // Agent 最近一次写 L1 的文件 mtime（用户保护判定）
 };
 
