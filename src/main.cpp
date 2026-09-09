@@ -20,6 +20,7 @@
 #include "util/Log.h"
 #include <QApplication>
 #include <QGuiApplication>
+#include <QIcon>
 #include <QLibraryInfo>
 #include <QLockFile>
 #include <QMessageBox>
@@ -41,6 +42,8 @@ int main(int argc, char* argv[]) {
     QApplication::setApplicationName(QStringLiteral("Miderforge"));
     QApplication::setOrganizationName(QStringLiteral("Miderforge"));
     QApplication::setApplicationVersion(QStringLiteral("0.1.0"));
+    // 窗口/任务栏图标（exe 外壳图标由 assets/app.rc 提供；qrc 里这枚 256px 供窗口与标题栏用）
+    app.setWindowIcon(QIcon(QStringLiteral(":/assets/miderforge-256.png")));
 
     // 数据目录与日志
     if (!appdirs::ensureLayout()) {
