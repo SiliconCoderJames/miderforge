@@ -15,6 +15,7 @@
 #include <QJsonObject>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QShowEvent>
 #include <QTextEdit>
 #include <QVBoxLayout>
 
@@ -101,12 +102,16 @@ TaskQueueView::TaskQueueView(Database* db, AgentLoop* loop, QWidget* parent)
     auto* top = new QHBoxLayout();
     auto* title = new QLabel(QStringLiteral("📋 任务队列"), this);
     title->setStyleSheet(QStringLiteral("font-size:11pt;font-weight:bold;color:%1;").arg(theme::colors::text.name()));
+    auto* refreshBtn = new QPushButton(QStringLiteral("刷新"), this);
+    refreshBtn->setToolTip(QStringLiteral("重新读取任务表（切换到此页也会自动刷新）"));
     auto* newBtn = new QPushButton(QStringLiteral("＋ 新建任务"), this);
     auto* cancelBtn = new QPushButton(QStringLiteral("取消选中任务"), this);
+    connect(refreshBtn, &QPushButton::clicked, this, &TaskQueueView::reload);
     connect(newBtn, &QPushButton::clicked, this, &TaskQueueView::onNewTask);
     connect(cancelBtn, &QPushButton::clicked, this, &TaskQueueView::onCancelTask);
     top->addWidget(title);
     top->addStretch(1);
+    top->addWidget(refreshBtn);
     top->addWidget(newBtn);
     top->addWidget(cancelBtn);
     lay->addLayout(top);
@@ -131,6 +136,11 @@ TaskQueueView::TaskQueueView(Database* db, AgentLoop* loop, QWidget* parent)
         "QLabel{background-color:%1;color:%2;border:1px solid #3d4045;border-radius:6px;padding:6px;}")
                                 .arg(theme::colors::window.name(), theme::colors::textDim.name()));
     lay->addWidget(m_detail, 1);
+    reload();
+}
+
+void TaskQueueView::showEvent(QShowEvent* ev) {
+    QWidget::showEvent(ev);
     reload();
 }
 

@@ -42,6 +42,10 @@ public:
 public slots:
     void reload();
 
+protected:
+    // 切到本页即重载（任务在别处跑完/入队时保证所见即最新）
+    void showEvent(QShowEvent* ev) override;
+
 private slots:
     void onNewTask();
     void onRowSelected();
