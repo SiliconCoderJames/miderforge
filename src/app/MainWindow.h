@@ -1,13 +1,14 @@
 // 主窗口（规格 4.1/4.2/4.9 骨架）：菜单栏+工具栏+左侧导航+中央堆叠区+状态栏；
 // M0 实装会话视图，其余面板随对应里程碑（M1 审计/M2 任务与记忆/M3 技能/M4 供应商与托盘）逐步实装
 #pragma once
+#include <QButtonGroup>
 #include <QComboBox>
 #include <QLabel>
 #include <QMainWindow>
 #include <QProgressBar>
 #include <QStackedWidget>
 #include <QSystemTrayIcon>
-#include <QTreeWidget>
+#include <QStringList>
 
 class QAction;
 class QPushButton;
@@ -58,7 +59,9 @@ private:
     EmailNotifier* m_mail = nullptr;
     QSystemTrayIcon* m_tray = nullptr;
 
-    QTreeWidget* m_nav = nullptr;
+    QWidget* m_activityBar = nullptr;   // 48px 图标活动栏（Claude/VS Code 式）
+    QButtonGroup* m_pageButtons = nullptr;
+    QStringList m_pageNames;            // 页面名（视图菜单用，含「设置」）
     QStackedWidget* m_stack = nullptr;
     SessionView* m_sessionView = nullptr;
     QComboBox* m_providerCombo = nullptr;

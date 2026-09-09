@@ -16,6 +16,7 @@
 #include "notify/EmailNotifier.h"
 #include <QAction>
 #include <QApplication>
+#include <QButtonGroup>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QMenu>
@@ -24,6 +25,7 @@
 #include <QStatusBar>
 #include <QStyle>
 #include <QSystemTrayIcon>
+#include <QToolButton>
 #include <QToolBar>
 #include <QVBoxLayout>
 
@@ -135,61 +137,61 @@ void MainWindow::buildCentral() {
     lay->setContentsMargins(0, 0, 0, 0);
     lay->setSpacing(0);
 
-    // ---- 左侧导航（260px，规格 4.2） ----
-    m_nav = new QTreeWidget(central);
-    m_nav->setFixedWidth(260);
-    m_nav->setHeaderHidden(true);
-    m_nav->setRootIsDecorated(false);
-    m_nav->setStyleSheet(QStringLiteral(
-        "QTreeWidget{background-color:%1;border:none;font-size:10pt;outline:none;}"
-        "QTreeWidget::item{height:38px;border-radius:8px;margin:2px 10px;color:%3;}"
-        "QTreeWidget::item:hover{background-color:%4;}"
-        "QTreeWidget::item:selected{background-color:%2;color:white;font-weight:bold;}")
-                             .arg(theme::colors::window.name(), theme::colors::accent.name(),
-                                  theme::colors::textDim.name(), theme::colors::panel.name()));
-    const QStringList navItems = {
-        QStringLiteral("💬  会话"),
-        QStringLiteral("📋  任务队列"),
-        QStringLiteral("🧰  技能库"),
-        QStringLiteral("🧠  记忆"),
-        QStringLiteral("🔌  供应商"),
-        QStringLiteral("📜  审计日志"),
-        QStringLiteral("⚙️  设置"),
-    };
-    for (const QString& text : navItems)
-        m_nav->addTopLevelItem(new QTreeWidgetItem({text}));
-    m_nav->setCurrentItem(m_nav->topLevelItem(0));
-    connect(m_nav, &QTreeWidget::currentItemChanged, this,
-            [this](QTreeWidgetItem* cur, QTreeWidgetItem*) {
-                if (cur)
-                    switchNav(m_nav->indexOfTopLevelItem(cur));
-            });
+    // ---- 左侧活动栏（48px 图标栏，Claude/VS Code 式；会话列表在会话页内） ----
+    m_activityBar = new QWidget(central);
+    m_activityBar->setFixedWidth(48);
+    m_activityBar->setStyleSheet(QStringLiteral("background-color:%1;border-right:1px solid %2;")
+                                     .arg(theme::colors::window.name(), theme::colors::panel.name()));
+    auto* barLay = new QVBoxLayout(m_activityBar);
+    barLay->setContentsMargins(4, 8, 4, 8);
+    barLay->setSpacing(4);
 
-    // 导航底部：L1 记忆占用进度条（4000 token 上限，>80% 变黄；M2 接入真实数据）
-    auto* navFooter = new QWidget(central);
-    auto* footerLay = new QVBoxLayout(navFooter);
-    footerLay->setContentsMargins(10, 4, 10, 8);
-    m_l1BarLabel = new QLabel(QStringLiteral("L1 记忆：0 / 4000 tokens"), navFooter);
-    m_l1BarLabel->setStyleSheet(QStringLiteral("color:%1;font-size:8pt;").arg(theme::colors::textDim.name()));
-    m_l1Bar = new QProgressBar(navFooter);
+    const QList<QPair<QString, QString>> pages = {
+        {QStringLiteral("💬"), QStringLiteral("会话")},
+        {QStringLiteral("📋"), QStringLiteral("任务队列")},
+        {QStringLiteral("🧰"), QStringLiteral("技能库")},
+        {QStringLiteral("🧠"), QStringLiteral("记忆")},
+        {QStringLiteral("🔌"), QStringLiteral("供应商")},
+        {QStringLiteral("📜"), QStringLiteral("审计日志")},
+        {QStringLiteral("⚙️"), QStringLiteral("设置")},
+    };
+    m_pageNames = QStringList();
+    m_pageButtons = new QButtonGroup(this);
+    m_pageButtons->setExclusive(true);
+    for (int i = 0; i < pages.size(); ++i) {
+        auto* btn = new QToolButton(m_activityBar);
+        btn->setText(pages[i].first);
+        btn->setToolTip(pages[i].second + QStringLiteral("（Ctrl+%1）").arg(i + 1));
+        btn->setCheckable(true);
+        btn->setFixedSize(40, 38);
+        btn->setStyleSheet(QStringLiteral(
+            "QToolButton{border:none;border-radius:8px;font-size:14pt;color:%1;background:transparent;}"
+            "QToolButton:hover{background-color:%2;}"
+            "QToolButton:checked{background-color:%3;}")
+                               .arg(theme::colors::textDim.name(), theme::colors::panel.name(),
+                                    theme::colors::accent.name()));
+        m_pageButtons->addButton(btn, i);
+        barLay->addWidget(btn);
+        m_pageNames << pages[i].second;
+    }
+    connect(m_pageButtons, &QButtonGroup::idClicked, this, [this](int id) { switchNav(id); });
+    m_pageButtons->button(0)->setChecked(true);
+
+    // 活动栏底部：L1 记忆占用进度条（数字放悬浮提示）
+    m_l1BarLabel = new QLabel(QStringLiteral("L1 记忆：0 / 4000 tokens"), m_activityBar);
+    m_l1BarLabel->setVisible(false); // 仅作 tooltip 数据源
+    m_l1Bar = new QProgressBar(m_activityBar);
     m_l1Bar->setRange(0, 4000);
     m_l1Bar->setValue(0);
     m_l1Bar->setTextVisible(false);
-    m_l1Bar->setFixedHeight(6);
+    m_l1Bar->setFixedSize(36, 6);
+    m_l1Bar->setToolTip(QStringLiteral("L1 记忆：0 / 4000 tokens"));
     m_l1Bar->setStyleSheet(QStringLiteral(
         "QProgressBar{background-color:%1;border:none;border-radius:3px;}"
         "QProgressBar::chunk{background-color:%2;border-radius:3px;}")
                                .arg(theme::colors::panel.name(), theme::colors::accent.name()));
-    footerLay->addWidget(m_l1BarLabel);
-    footerLay->addWidget(m_l1Bar);
-
-    auto* navColumn = new QWidget(central);
-    auto* navLay = new QVBoxLayout(navColumn);
-    navLay->setContentsMargins(0, 0, 0, 0);
-    navLay->setSpacing(0);
-    navLay->addWidget(m_nav, 1);
-    navLay->addWidget(navFooter);
-    navColumn->setStyleSheet(QStringLiteral("background-color:%1;").arg(theme::colors::window.name()));
+    barLay->addStretch(1);
+    barLay->addWidget(m_l1Bar);
 
     // ---- 中央堆叠区 ----
     m_stack = new QStackedWidget(central);
@@ -201,7 +203,7 @@ void MainWindow::buildCentral() {
     m_stack->addWidget(new ProviderPanel(m_pm, m_stack)); // 4 供应商（M4 实装）
     m_stack->addWidget(new AuditLogView(m_events, m_stack)); // 5 审计日志（M1 实装）
 
-    lay->addWidget(navColumn);
+    lay->addWidget(m_activityBar);
     lay->addWidget(m_stack, 1);
     setCentralWidget(central);
 }
@@ -238,7 +240,7 @@ void MainWindow::buildMenus() {
 
     QMenu* viewMenu = menuBar()->addMenu(QStringLiteral("视图"));
     for (int i = 0; i < 7; ++i) { // 含第 7 项「设置」：对话框页，Ctrl+7 直达
-        QAction* go = viewMenu->addAction(m_nav->topLevelItem(i)->text(0));
+        QAction* go = viewMenu->addAction(m_pageNames.at(i));
         go->setShortcut(QKeySequence(QStringLiteral("Ctrl+%1").arg(i + 1)));
         connect(go, &QAction::triggered, this, [this, i] { switchNav(i); });
     }
@@ -364,6 +366,7 @@ void MainWindow::refreshL1Footer() {
         return;
     const qint64 used = m_mem->l1Tokens();
     m_l1BarLabel->setText(QStringLiteral("L1 记忆：%1 / 4000 tokens").arg(used));
+    m_l1Bar->setToolTip(m_l1BarLabel->text());
     m_l1Bar->setValue(static_cast<int>(qBound<qint64>(qint64(0), used, qint64(4000))));
     // >80% 变黄（规格：L1 接近上限预警）
     m_l1Bar->setStyleSheet(used > 4000 * 8 / 10
@@ -378,8 +381,9 @@ void MainWindow::refreshL1Footer() {
 void MainWindow::switchNav(int index) {
     if (index == kNavSettingsIndex) {
         openSettings();
-        // 设置是对话框：导航选框回弹到会话页
-        m_nav->setCurrentItem(m_nav->topLevelItem(0));
+        // 设置是对话框：活动栏回弹到会话页
+        if (m_pageButtons && m_pageButtons->button(0))
+            m_pageButtons->button(0)->setChecked(true);
         return;
     }
     m_stack->setCurrentIndex(index);
