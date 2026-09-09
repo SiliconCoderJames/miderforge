@@ -98,12 +98,19 @@ target_sources(miderforge PRIVATE assets/app.rc) # exe 外壳图标（资源管�
 qt_add_resources(miderforge "appicons" PREFIX "/" FILES assets/miderforge-256.png) # 窗口图标
 target_link_libraries(miderforge PRIVATE mider_ui)
 
-# 运行时 DLL 随 exe 就位（Qt 等）：免"PATH 没挂 Qt bin 就 0xc0000135"，ctest 与直接启动都可用
+# 运行时 Qt 完整部署（含 platforms/qwindows.dll 插件）：TARGET_RUNTIME_DLLS 只拷核心 DLL，
+# 缺平台插件会让 exe 脱离开发环境（无 Qt PATH）后启动即报 "no Qt platform plugin"
+# ——桌面快捷方式启动触发的实机 bug，windeployqt 按 exe 依赖自动部署全部运行时
 if(WIN32)
+    get_target_property(_qmake_exe Qt6::qmake LOCATION)
+    get_filename_component(_qt_bin_dir "${_qmake_exe}" DIRECTORY)
     add_custom_command(TARGET miderforge POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                $<TARGET_RUNTIME_DLLS:miderforge> $<TARGET_FILE_DIR:miderforge>
-        COMMAND_EXPAND_LISTS)
+        COMMAND "${_qt_bin_dir}/windeployqt.exe"
+                $<IF:$<CONFIG:Debug>,--debug,--release>
+                --no-translations --no-system-d3d-compiler --no-opengl-sw --no-quick-import
+                $<TARGET_FILE:miderforge>
+        COMMENT "windeployqt: 部署 Qt DLL 与平台插件到输出目录"
+        VERBATIM)
 endif()
 
 # 单元测试（doctest）：只依赖 mider_core，不拉 Widgets
