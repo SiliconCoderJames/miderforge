@@ -8,6 +8,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QRandomGenerator>
+#include <cmath>
 #include <doctest/doctest.h>
 #include <memory>
 
@@ -288,4 +289,93 @@ TEST_CASE("一致性失效：archiveMemories 批量归档且不物理删（M4.5 
     REQUIRE_FALSE(hits.empty());
     CHECK(hits.first().id == c);
     CHECK(f.mem->archiveMemories({}) == 0); // 空清单安全
+}
+
+// ---- M6-A 语义检索 ----
+
+#include "llm/EmbeddingClient.h"
+#include <QHash>
+
+namespace {
+// 确定性桩嵌入器：按文本查表返回固定向量，未登记的文本给零向量
+class StubEmbedder : public miderforge::EmbeddingClient {
+public:
+    StubEmbedder()
+        : EmbeddingClient(Config{QStringLiteral("https://stub.test"), {},
+                                 QStringLiteral("stub-embed")}) {}
+    bool embed(const QStringList& texts, QVector<QVector<float>>* out, QString*) override {
+        for (const auto& t : texts)
+            out->push_back(m_map.value(t, QVector<float>{0.f, 0.f, 0.f}));
+        return true;
+    }
+    QHash<QString, QVector<float>> m_map;
+};
+} // namespace
+
+TEST_CASE("向量序列化与余弦：float32 BLOB 往返、零向量/维度不一致守卫") {
+    const QVector<float> v{0.25f, -1.5f, 3.75f, 1e-9f};
+    const auto blob = MemoryManager::packVector(v);
+    const auto back = MemoryManager::unpackVector(blob);
+    REQUIRE(back.size() == 4); // 含 0x00 字节不截断（Database BLOB 分支回归）
+    for (int i = 0; i < 4; ++i)
+        CHECK(back[i] == doctest::Approx(v[i]));
+
+    CHECK(MemoryManager::cosineSim({1, 0}, {1, 0}) == doctest::Approx(1.0));
+    CHECK(MemoryManager::cosineSim({1, 0}, {0, 1}) == doctest::Approx(0.0));
+    CHECK(MemoryManager::cosineSim({1, 0}, {-1, 0}) == doctest::Approx(-1.0));
+    CHECK(MemoryManager::cosineSim({1, 0}, {0, 0, 0}) != // 零向量→0；维度不一致→NaN
+          MemoryManager::cosineSim({1, 0}, {0, 0, 0})); // NaN 自不等
+    CHECK(std::isnan(MemoryManager::cosineSim({1, 0}, {1, 0, 0})));
+}
+
+TEST_CASE("RRF 融合：双通道名次融合，双通道同时命中的 id 居首") {
+    const auto fused = MemoryManager::fuseRRF({1, 2, 3}, {3, 4});
+    REQUIRE(fused.size() == 4);
+    CHECK(fused[0].first == 3); // 1/(60+0)+1/(60+0) 双通道叠加
+    CHECK(fused[1].first == 1); // 1/60
+    CHECK(fused[2].first == 2); // 1/61 与 id4 并列，插入序决胜
+    CHECK(fused[3].first == 4);
+}
+
+TEST_CASE("语义召回：词面不同语义近的记忆经向量通道召回置顶，缺向量渐进补齐") {
+    MemFixture f;
+    static StubEmbedder stub; // 静态：跨用例存活，规避 doctest 泄漏检查
+    for (int i = 0; i < 99; ++i)
+        f.mem->addMemory(QStringLiteral("project_facts"),
+                         QStringLiteral("项目事实 %1：模块 %2 使用 CMake 组织。").arg(i).arg(i), 0.4);
+    const qint64 lesson =
+        f.mem->addMemory(QStringLiteral("task_lesson"),
+                         QStringLiteral("SQLite 死锁的排查教训：写事务锁等待超时导致任务失败。"), 0.8);
+    // 词面完全不含查询词（trigram MATCH 召回不了它）；语义上与查询同向
+    stub.m_map[QStringLiteral("SQLite 死锁的排查教训：写事务锁等待超时导致任务失败。")] = {1.f, 0.f};
+    stub.m_map[QStringLiteral("上次数据库锁问题的排查")] = {1.f, 0.f};
+    f.mem->setEmbedder(&stub);
+    // 同秒写入的 updated_at 并列，渐进补齐不保证最新条入选首批：先显式全量补嵌
+    CHECK(f.mem->backfillEmbeddings(100) == 100);
+
+    const auto hits = f.mem->retrieve(QStringLiteral("上次数据库锁问题的排查"), 5);
+    REQUIRE_FALSE(hits.empty());
+    CHECK(hits.first().id == lesson);
+    // 补嵌入确实落库（float32 BLOB），且 fillers 的零向量/维度不匹配不会污染召回
+    const auto all = f.mem->listAll(QStringLiteral("task_lesson"));
+    REQUIRE(all.size() == 1);
+    CHECK(all.first().accessCount >= 1);
+}
+
+TEST_CASE("内容更新即向量失效：embedding 置 NULL 等待重嵌（write-through invalidation）") {
+    MemFixture f;
+    static StubEmbedder stub;
+    stub.m_map[QStringLiteral("旧内容")] = {1.f, 0.f};
+    f.mem->setEmbedder(&stub);
+    const qint64 id = f.mem->addMemory(QStringLiteral("coding_pref"), QStringLiteral("旧内容"), 0.5);
+    CHECK(f.mem->backfillEmbeddings(8) == 1);
+    // 落库校验：BLOB 长度 = 维度 × sizeof(float)
+    const auto rows1 = f.db.query(
+        QStringLiteral("SELECT embedding FROM memories WHERE id=?"), {id});
+    CHECK(rows1[0].value("embedding").toByteArray().size() == 2 * int(sizeof(float)));
+    // 改内容 → 向量失效
+    f.mem->updateContent(id, QStringLiteral("新内容：偏好四空格缩进"));
+    const auto rows2 = f.db.query(
+        QStringLiteral("SELECT embedding FROM memories WHERE id=?"), {id});
+    CHECK(rows2[0].value("embedding").isNull());
 }

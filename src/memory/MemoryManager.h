@@ -1,14 +1,17 @@
 // 记忆管理（规格 6 分层记忆）：L1 核心记忆文件、L2 会话摘要（滚动 50 条）、L3 档案库；
-// 检索 = FTS5 trigram（短词 LIKE 兜底）→ 综合评分 → Top5 → access_count 回写
+// 检索 = FTS5 trigram（短词 LIKE 兜底）+ 语义向量（M6-A，RRF 混合）→ 综合评分 → Top5 → access_count 回写
 #pragma once
+#include <QByteArray>
 #include <QDateTime>
 #include <QJsonObject>
+#include <QPair>
 #include <QVector>
 #include <QString>
 
 namespace miderforge {
 
 class Database;
+class EmbeddingClient;
 
 class MemoryManager {
 public:
@@ -49,8 +52,23 @@ public:
     int archiveMemories(const QVector<qint64>& ids);
 
     // ---- 检索（任务开始时注入 system prompt「相关记忆」段） ----
-    // 短词（<3 字符）自动降级 LIKE 全扫（必须有单测覆盖）
+    // 短词（<3 字符）自动降级 LIKE 全扫（必须有单测覆盖）；
+    // 注入嵌入器后走 FTS5 + 向量余弦双通道 RRF 混合排序（M6-A），嵌入失败静默降级纯 FTS5
     QVector<MemoryRecord> retrieve(const QString& rawQuery, int topN = 5);
+
+    // ---- 语义检索（M6-A） ----
+    // 注入嵌入器（空指针 = 纯 FTS5；单测注入确定性桩）。不转移所有权
+    void setEmbedder(EmbeddingClient* e) { m_embedder = e; }
+    // 为缺向量的 active 记忆补嵌入（每次至多 maxBatch 条；阻塞网络，须在可阻塞线程调用）；返回补齐条数
+    int backfillEmbeddings(int maxBatch = 8);
+    // 向量序列化（float32 小端字节数组，存 memories.embedding BLOB）与余弦相似度（暴露给单测）：
+    // 零向量 → 0；维度不一致（换嵌入模型后的存量向量）→ NaN
+    static QByteArray packVector(const QVector<float>& v);
+    static QVector<float> unpackVector(const QByteArray& blob);
+    static double cosineSim(const QVector<float>& a, const QVector<float>& b);
+    // RRF 融合（暴露给单测）：两路按序 id 列表（优→劣），得分 Σ 1/(k+rank)（rank 从 0 计），按分降序返回
+    static QVector<QPair<qint64, double>> fuseRRF(const QVector<qint64>& a,
+                                                  const QVector<qint64>& b, int k = 60);
 
     // ---- L2 会话摘要（滚动上限 50 条，FIFO） ----
     qint64 addSessionSummary(const QString& content);
@@ -81,6 +99,7 @@ private:
 
     Database* m_db = nullptr;
     QString m_l1Path;
+    EmbeddingClient* m_embedder = nullptr; // M6-A 语义检索；nullptr = 纯 FTS5
     mutable QDateTime m_lastAgentWrite; // Agent 最近一次写 L1 的文件 mtime（用户保护判定）
 };
 

@@ -249,6 +249,13 @@ std::vector<QVariantMap> Database::query(const QString& sql, const QVariantList&
             case SQLITE_INTEGER: row.insert(name, sqlite3_column_int64(stmt, c)); break;
             case SQLITE_FLOAT: row.insert(name, sqlite3_column_double(stmt, c)); break;
             case SQLITE_NULL: row.insert(name, QVariant()); break;
+            case SQLITE_BLOB: {
+                // BLOB 必须按字节读：float32 向量几乎必含 0x00，走 column_text 会在首个 NUL 处被截断
+                const int n = sqlite3_column_bytes(stmt, c);
+                const void* p = sqlite3_column_blob(stmt, c);
+                row.insert(name, n > 0 ? QByteArray(static_cast<const char*>(p), n) : QByteArray());
+                break;
+            }
             default: row.insert(name, QString::fromUtf8(reinterpret_cast<const char*>(sqlite3_column_text(stmt, c)))); break;
             }
         }
@@ -283,6 +290,12 @@ bool Database::executeInsert(const QString& sql, const QVariantList& binds, qint
         case QMetaType::Bool:
             sqlite3_bind_int(stmt, i + 1, v.toBool() ? 1 : 0);
             break;
+        case QMetaType::QByteArray: {
+            // BLOB 绑定：bind_text 以 NUL 为界，会把含 0x00 的 float32 向量写残
+            const QByteArray ba = v.toByteArray();
+            sqlite3_bind_blob(stmt, i + 1, ba.isEmpty() ? nullptr : ba.constData(), ba.size(), SQLITE_TRANSIENT);
+            break;
+        }
         default:
             sqlite3_bind_text(stmt, i + 1, v.toString().toUtf8().constData(), -1, SQLITE_TRANSIENT);
             break;

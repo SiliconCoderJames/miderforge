@@ -1,18 +1,23 @@
 // 记忆管理实现
 #include "memory/MemoryManager.h"
 #include "db/Database.h"
+#include "llm/EmbeddingClient.h"
 #include "util/Log.h"
 #include "util/Tokens.h"
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QHash>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QRegularExpression>
 #include <QSet>
+#include <spdlog/spdlog.h>
 #include <algorithm>
 #include <cmath>
+#include <cstring>
+#include <limits>
 
 namespace miderforge {
 
@@ -87,7 +92,9 @@ bool MemoryManager::archiveMemory(qint64 id) {
 
 bool MemoryManager::updateContent(qint64 id, const QString& content) {
     const qint64 now = QDateTime::currentSecsSinceEpoch();
-    return m_db->execute(QStringLiteral("UPDATE memories SET content=?, updated_at=? WHERE id=?"),
+    // 内容变更即失效旧向量（存储体系 write-through invalidation 语义）：
+    // 旧嵌入描述的是旧文本，留着会持续污染语义召回；置 NULL 由 backfillEmbeddings 用新文本重嵌
+    return m_db->execute(QStringLiteral("UPDATE memories SET content=?, embedding=NULL, updated_at=? WHERE id=?"),
                          {content, now, id});
 }
 
@@ -174,6 +181,92 @@ double MemoryManager::score(double bm25Rank, double importance, qint64 updatedAt
     return 0.5 * bm25 + 0.2 * importance + 0.2 * decay + 0.1 * access;
 }
 
+QByteArray MemoryManager::packVector(const QVector<float>& v) {
+    QByteArray blob(v.size() * int(sizeof(float)), Qt::Uninitialized);
+    if (!v.isEmpty())
+        std::memcpy(blob.data(), v.constData(), size_t(v.size()) * sizeof(float));
+    return blob;
+}
+
+QVector<float> MemoryManager::unpackVector(const QByteArray& blob) {
+    QVector<float> out(blob.size() / int(sizeof(float)), 0.0f);
+    if (!out.isEmpty())
+        std::memcpy(out.data(), blob.constData(), size_t(out.size()) * sizeof(float));
+    return out;
+}
+
+double MemoryManager::cosineSim(const QVector<float>& a, const QVector<float>& b) {
+    if (a.size() != b.size())
+        return std::numeric_limits<double>::quiet_NaN(); // 换嵌入模型后的存量向量维度不一致
+    double dot = 0, na = 0, nb = 0;
+    for (int i = 0; i < a.size(); ++i) {
+        dot += double(a[i]) * b[i];
+        na += double(a[i]) * a[i];
+        nb += double(b[i]) * b[i];
+    }
+    if (na <= 0.0 || nb <= 0.0)
+        return 0.0; // 零向量无方向
+    return dot / std::sqrt(na * nb);
+}
+
+QVector<QPair<qint64, double>> MemoryManager::fuseRRF(const QVector<qint64>& a,
+                                                      const QVector<qint64>& b, int k) {
+    QHash<qint64, double> scored;
+    const auto add = [&scored, k](const QVector<qint64>& ids) {
+        for (int r = 0; r < ids.size(); ++r)
+            scored[ids[r]] += 1.0 / (double(k) + double(r)); // rank 从 0 计（Cormack RRF 惯例）
+    };
+    add(a);
+    add(b);
+    QVector<QPair<qint64, double>> out;
+    out.reserve(scored.size());
+    for (auto it = scored.constBegin(); it != scored.constEnd(); ++it)
+        out.append({it.key(), it.value()});
+    std::sort(out.begin(), out.end(),
+              [](const QPair<qint64, double>& x, const QPair<qint64, double>& y) {
+                  return x.second > y.second;
+              });
+    return out;
+}
+
+int MemoryManager::backfillEmbeddings(int maxBatch) {
+    if (!m_embedder || !m_embedder->valid() || maxBatch <= 0)
+        return 0;
+    const auto rows = m_db->query(QStringLiteral(
+        "SELECT id, content FROM memories WHERE status='active' AND embedding IS NULL "
+        "ORDER BY updated_at DESC LIMIT ?"), {maxBatch});
+    if (rows.empty())
+        return 0;
+    QStringList texts;
+    QVector<qint64> ids;
+    texts.reserve(rows.size());
+    for (const auto& row : rows) {
+        ids << row.value("id").toLongLong();
+        texts << row.value("content").toString();
+    }
+    QVector<QVector<float>> vecs;
+    QString err;
+    if (!m_embedder->embed(texts, &vecs, &err)) {
+        if (auto lg = logutil::logger())
+            lg->warn("记忆补嵌入失败（本批 {} 条跳过）：{}", ids.size(), err.toStdString());
+        return 0;
+    }
+    if (vecs.size() != ids.size()) {
+        if (auto lg = logutil::logger())
+            lg->warn("记忆补嵌入条数对不上：请求 {} 返回 {}", ids.size(), vecs.size());
+        return 0;
+    }
+    int n = 0;
+    for (int i = 0; i < ids.size(); ++i) {
+        if (vecs[i].isEmpty())
+            continue; // 响应缺项：留 NULL 下轮重嵌
+        if (m_db->execute(QStringLiteral("UPDATE memories SET embedding=? WHERE id=?"),
+                          {packVector(vecs[i]), ids[i]}))
+            ++n;
+    }
+    return n;
+}
+
 QVector<MemoryManager::MemoryRecord> MemoryManager::retrieve(const QString& rawQuery, int topN) {
     QVector<MemoryRecord> out;
     const QString q = rawQuery.trimmed();
@@ -207,7 +300,7 @@ QVector<MemoryManager::MemoryRecord> MemoryManager::retrieve(const QString& rawQ
         return hits;
     }
 
-    // FTS5 路径：逐词 MATCH 取候选（bm25 排序），再在应用层做综合评分
+    // ---- 通道 A：FTS5 逐词 MATCH（bm25 排序）+ 综合评分（原有语义保留） ----
     const qint64 now = QDateTime::currentSecsSinceEpoch();
     struct Candidate { MemoryRecord rec; double s; };
     std::vector<Candidate> cands;
@@ -243,9 +336,67 @@ QVector<MemoryManager::MemoryRecord> MemoryManager::retrieve(const QString& rawQ
     }
     std::sort(cands.begin(), cands.end(),
               [](const Candidate& a, const Candidate& b) { return a.s > b.s; });
-    for (int i = 0; i < int(cands.size()) && i < topN; ++i) {
-        recordAccess(cands[i].rec.id); // 命中即计数（规格 6）
-        out.push_back(cands[i].rec);
+
+    // ---- 通道 B：语义向量（M6-A）。查询向量余弦召回，词面不同语义近的记忆由此补齐 ----
+    QVector<qint64> ftsIds;
+    QHash<qint64, MemoryRecord> recs;
+    for (const auto& c : cands) {
+        ftsIds << c.rec.id;
+        recs.insert(c.rec.id, c.rec);
+    }
+    QVector<qint64> vecIds;
+    if (m_embedder && m_embedder->valid()) {
+        backfillEmbeddings(8); // 渐进补齐缺向量条目；失败静默（FTS 主路不受影响）
+        QVector<QVector<float>> qv;
+        QString eerr;
+        if (m_embedder->embed({q}, &qv, &eerr) && qv.size() == 1 && !qv.front().isEmpty()) {
+            struct VecHit { qint64 id; double sim; };
+            std::vector<VecHit> hits;
+            for (const auto& row : m_db->query(QStringLiteral(
+                    "SELECT id,type,content,importance,status,created_at,updated_at,access_count,"
+                    "last_accessed_at,embedding FROM memories WHERE status='active' AND embedding IS NOT NULL"))) {
+                MemoryRecord r;
+                r.id = row.value("id").toLongLong();
+                r.type = row.value("type").toString();
+                r.content = row.value("content").toString();
+                r.importance = row.value("importance").toDouble();
+                r.status = row.value("status").toString();
+                r.createdAt = row.value("created_at").toLongLong();
+                r.updatedAt = row.value("updated_at").toLongLong();
+                r.accessCount = row.value("access_count").toLongLong();
+                r.lastAccessedAt = row.value("last_accessed_at").toLongLong();
+                const double sim = cosineSim(qv.front(), unpackVector(row.value("embedding").toByteArray()));
+                if (std::isnan(sim) || sim <= 0.0)
+                    continue; // 维度不一致（换模型存量）/零向量/负相关一律不召回
+                hits.push_back({r.id, sim});
+                recs.insert(r.id, std::move(r)); // 语义独有命中也要能取出完整记录
+            }
+            std::sort(hits.begin(), hits.end(),
+                      [](const VecHit& x, const VecHit& y) { return x.sim > y.sim; });
+            for (int i = 0; i < int(hits.size()) && i < 20; ++i)
+                vecIds << hits[i].id;
+        } else if (auto lg = logutil::logger()) {
+            lg->warn("查询嵌入失败，本次检索降级纯 FTS5：{}", eerr.toStdString());
+        }
+    }
+
+    if (vecIds.isEmpty()) {
+        // 无语义通道：保持原有纯 FTS5 行为（回归红线，附带单测覆盖）
+        for (int i = 0; i < int(cands.size()) && i < topN; ++i) {
+            recordAccess(cands[i].rec.id); // 命中即计数（规格 6）
+            out.push_back(cands[i].rec);
+        }
+        return out;
+    }
+
+    // ---- RRF 融合双通道：两路排名互不可比（bm25 分数 vs 余弦值），只融合名次最稳 ----
+    const auto fused = fuseRRF(ftsIds, vecIds);
+    for (int i = 0; i < fused.size() && i < topN; ++i) {
+        const auto it = recs.constFind(fused[i].first);
+        if (it == recs.constEnd())
+            continue;
+        recordAccess(it->id);
+        out.push_back(*it);
     }
     return out;
 }
