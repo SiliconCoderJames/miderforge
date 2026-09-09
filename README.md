@@ -36,6 +36,8 @@ Miderforge 是一款可长期驻留的 Windows 桌面 AI Agent。你用中文下
 | 🧰 **技能库** | 成功任务方案自动固化为可复用 `SKILL.md`（agentskills.io 风格），带使用统计与自动降权 |
 | 🗄️ **数据库** | SQLite（WAL + FTS5 trigram）承载记忆/技能/任务/事件的全量持久化与审计 |
 
+> 🐝 单体成长之外，同作者姊妹项目 [AgentHive](https://github.com/SiliconCoderJames/AgentHive) 为所有 AI Agent 提供本地共享蜂巢——Miderforge 的记忆与技能资产可带入蜂巢跨 Agent 共享，详见下文[同作者姊妹项目](#-同作者姊妹项目agenthive)一节。
+
 ## ✨ 功能特性
 
 **🧠 记忆与成长（核心卖点）**
@@ -64,14 +66,14 @@ Miderforge 是一款可长期驻留的 Windows 桌面 AI Agent。你用中文下
 
 ## 🚀 快速开始
 
-> **前置条件**：Windows 10+ · Visual Studio 2022/2026 (MSVC) · CMake ≥ 3.24 · vcpkg · Qt 6.8 Widgets
+> **前置条件**：Windows 10+ · Visual Studio 2026 (MSVC v18) · CMake ≥ 3.24 · vcpkg · Qt 6.8 Widgets —— 环境问题见下方[常见问题](#-常见问题)。
 
 ```bat
 :: 1. 获取 vcpkg（已有可跳过）
 git clone https://github.com/microsoft/vcpkg C:\vcpkg
 C:\vcpkg\bootstrap-vcpkg.bat -disableMetrics
 
-:: 2. 配置 + 构建（vcpkg manifest 自动安装依赖；Qt 路径不同见下方说明）
+:: 2. 配置 + 构建（vcpkg manifest 自动安装依赖；环境问题见下方常见问题）
 set VCPKG_ROOT=C:\vcpkg
 cmake --preset win64
 cmake --build --preset win64-release
@@ -85,7 +87,22 @@ build\Release\miderforge.exe
 
 首次启动会弹出**配置向导**：填入大模型 API Key（[智谱](https://open.bigmodel.cn) / [DeepSeek](https://platform.deepseek.com)），Key 经 Windows DPAPI 加密后本地存储，绝不落明文、绝不上传。
 
-> Qt 路径不同？修改 `CMakePresets.json` 中的 `CMAKE_PREFIX_PATH`。
+## ❓ 常见问题
+
+**Q：configure 报「Could not find any instance of Visual Studio」或生成器不存在？**
+预设使用 VS 2026 生成器（`Visual Studio 18 2026`）。VS 2022 用户请把 `CMakePresets.json` 中的 `generator` 改为 `"Visual Studio 17 2022"`。
+
+**Q：Qt 不在默认路径？**
+修改 `CMakePresets.json` 中的 `CMAKE_PREFIX_PATH`，指向你的 Qt 目录（如 `C:/Qt/6.8.3/msvc2022_64`）。
+
+**Q：configure 报 `VCPKG_ROOT` 未设置？**
+先设环境变量再配置：cmd 用 `set VCPKG_ROOT=C:\vcpkg`，PowerShell 用 `$env:VCPKG_ROOT="C:\vcpkg"`。
+
+**Q：测试怎么跑？**
+在**源码根目录**执行 `ctest --preset win64-release`（预设自动定位构建目录）；也可直接运行 `build\Release\mider_tests.exe`。
+
+**Q：配置和数据存在哪？如何完全重置？**
+全在 `%APPDATA%\Miderforge`（配置、SQLite 数据库、DPAPI 加密的 API Key）；删除该目录即恢复出厂，仓库目录内不落任何运行时数据。
 
 ## 📚 文档
 
@@ -147,19 +164,37 @@ Miderforge/
 | **M4** | 三档路由 + 故障转移 + 托盘 + 邮件通知 | ✅ |
 | **M4.5** | 记忆分层强化：一致性失效 / L1 容量纪律 / 增量 token 记账 / L2 淘汰评分化 / 跨层预取 | ✅ |
 | **M5** | 中断分级：四级中断模型（系统/熔断/用户/操作级）、暂停恢复、取消令牌传导、checkpoint 续跑 | ✅ |
+| **M6** | 生态互通：L3 语义检索（内置 sqlite-vec）+ [AgentHive](https://github.com/SiliconCoderJames/AgentHive) 蜂巢接入（技能市场 / 共享知识库 / 用户记忆 / Token 观测，仅 127.0.0.1） | 🚧 规划中 |
 
 > 单元测试 85 个用例（doctest，只依赖 mider_core、可完全脱离 GUI 运行）全部通过。涉及真实 API Key / SMTP 授权码的端到端项请在配置后自行复核，明细见 [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md)。
 
 ## 🐝 同作者姊妹项目：AgentHive
 
-Miderforge 是一只**单体的蜜蜂**。当你的桌面上同时跑着多个 AI Agent——Claude Code、
-Codex CLI、Cursor、其他命令行 Agent……它们彼此并不认识：各自记笔记、踩别人踩过的坑、
-无法把活儿委托出去。同作者的 [**AgentHive**](https://github.com/SiliconCoderJames/AgentHive)
-补上这一环：一个纯本地的多 Agent 协作中枢（C++20 / Qt 6 / SQLite WAL / sqlite-vec，
-同款技术栈），提供共享知识库、技能市场、共享用户记忆、异步任务委托、错误互助与
-Token 观测；服务只监听 `127.0.0.1`，数据不出本机。
+Miderforge 是一只**单体的蜜蜂**。而当你桌面上同时跑着 Claude Code、Codex CLI、Cursor 等多个 AI Agent 时，它们彼此并不认识：各自记笔记、重复踩坑、反复问你同样的问题、无法互相委托任务。同作者的姊妹项目 [**AgentHive**](https://github.com/SiliconCoderJames/AgentHive)（本地多 Agent 协作平台）就是它们的**蜂巢**——纯本地运行，服务只监听 `127.0.0.1:8787`，无账号、无云依赖，全部数据就是一个本机 SQLite 文件；与 Miderforge 同款技术栈（C++20 / Qt 6 / SQLite WAL + sqlite-vec），同一作者维护。
 
-Miderforge 天生就能加入蜂巢——AgentHive 对任何能发 HTTP 请求的 Agent 开放，三步接入：
+蜂巢提供七类共享能力：
+
+| 模块 | 作用 |
+|---|---|
+| 🧠 共享知识库 | 跨 Agent 沉淀经验 / 方案 / 踩坑，关键词 + 语义双模式检索（sqlite-vec，嵌入器可插拔） |
+| 🛠️ 技能市场 | Agent 注册自己擅长的技能供其他 Agent 检索调用——先注册后调用、调用留痕 |
+| 🧑 共享用户记忆 | 项目进度、编码偏好、工作习惯、设备环境全 Agent 共享，不再重复询问 |
+| 💬 异步委托 | note / question / task 三类消息 + 任务状态机，不要求双方同时在线 |
+| 🚨 错误互助 | 报错强制入日志，其他 Agent 可接手解决；解决说明只追加、不覆盖 |
+| 📊 Token 观测 | 跨 Agent 用量按周聚合 + 80% / 95% / 超限三级告警（仅观测，不限制） |
+| 🧾 全程审计 | 所有操作留痕可回溯，过期记录自动清理，支持备份恢复 |
+
+Miderforge 的单体资产与蜂巢模块一一对应（打通规划见 Roadmap M6）：
+
+| Miderforge 单体资产（本地私有） | 接入蜂巢后（跨 Agent 共享） |
+|---|---|
+| 🧰 技能库 `SKILL.md` | 注册进技能市场，被 Claude Code / Codex / Cursor 检索与调用 |
+| 🧠 L2 会话摘要 / L3 档案 | 任务收尾沉淀进共享知识库，关键词 + 语义双检索命中 |
+| 🧑 核心记忆中的偏好与背景 | 与蜂巢用户记忆互通，任何 Agent 不再重复问 |
+| 📊 增量 token 记账 | 上报蜂巢周用量观测，多 Agent 汇成一张图 |
+| 📋 任务队列 | 接收其他 Agent 委派的 note / question / task，异步完成 |
+
+接入对任何能发 HTTP 请求的 Agent 开放，三步：
 
 1. `agent-cli register` 注册蜂巢身份（主密钥仅首次注册时使用）；
 2. 把磨熟的 `SKILL.md` 方案注册进蜂巢技能市场，其他 Agent 检索后可直接调用；
