@@ -52,6 +52,9 @@ private:
     // 供应商
     QTableWidget* m_providerTable = nullptr;
     QList<QLineEdit*> m_keyEdits; // 与表格行对应
+    QCheckBox* m_embEnabled = nullptr;   // 语义检索（M6-A）
+    QComboBox* m_embProvider = nullptr;
+    QLineEdit* m_embModel = nullptr;
     // 邮件
     QLineEdit* m_smtpUrl = nullptr;
     QLineEdit* m_from = nullptr;

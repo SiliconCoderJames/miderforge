@@ -180,6 +180,29 @@ QWidget* SettingsDialog::buildProviderPage() {
     }
     lay->addWidget(new QLabel(QStringLiteral("API Key 修改后点〔保存〕；落盘为 DPAPI 密文。"), w), 0);
     lay->addWidget(m_providerTable, 1);
+
+    // ---- 语义检索（M6-A）：随所选供应商复用其 base_url 与 Key ----
+    const auto& emb = m_pm->embedding();
+    m_embEnabled = new QCheckBox(QStringLiteral("启用语义检索（FTS5 + 语义向量混合检索）"), w);
+    m_embEnabled->setChecked(emb.enabled);
+    m_embProvider = new QComboBox(w);
+    m_embModel = new QLineEdit(emb.model, w);
+    int embIdx = 0;
+    for (int i = 0; i < m_pm->all().size(); ++i) {
+        const auto& cfg = m_pm->all().at(i);
+        m_embProvider->addItem(cfg.name);
+        if (cfg.name == emb.provider)
+            embIdx = i;
+    }
+    m_embProvider->setCurrentIndex(embIdx);
+    auto* embForm = new QFormLayout();
+    embForm->addRow(m_embEnabled);
+    embForm->addRow(QStringLiteral("嵌入供应商"), m_embProvider);
+    embForm->addRow(QStringLiteral("嵌入模型"), m_embModel);
+    lay->addLayout(embForm);
+    auto* embNote = new QLabel(QStringLiteral("复用所选供应商的接口地址与 API Key；修改后重启应用生效。"), w);
+    embNote->setStyleSheet(QStringLiteral("color:%1;font-size:8pt;").arg(theme::colors::textDim.name()));
+    lay->addWidget(embNote);
     return w;
 }
 
@@ -392,6 +415,13 @@ void SettingsDialog::onSave() {
             m_pm->saveKey(cfg.name, key);
         ++row;
     }
+    // 语义检索（M6-A）：重启后经 main.cpp 装配生效
+    EmbeddingConfig emb;
+    emb.enabled = m_embEnabled->isChecked();
+    emb.provider = m_embProvider->currentText();
+    emb.model = m_embModel->text().trimmed().isEmpty() ? QStringLiteral("embedding-3")
+                                                       : m_embModel->text().trimmed();
+    m_pm->setEmbeddingConfig(emb);
     // 权限模式（与主窗口同源）
     if (m_applyPermissionMode)
         m_applyPermissionMode(m_permCombo->currentIndex());
