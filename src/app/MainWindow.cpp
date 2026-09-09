@@ -90,6 +90,15 @@ MainWindow::MainWindow(ProviderManager* pm, AgentLoop* loop, EventBus* events, D
     });
     connect(quitAction, &QAction::triggered, qApp, &QApplication::quit);
     m_tray->setContextMenu(trayMenu);
+    // 单/双击托盘图标 → 恢复主窗口（最小化/隐藏后的标准唤回方式）
+    connect(m_tray, &QSystemTrayIcon::activated, this,
+            [this](QSystemTrayIcon::ActivationReason reason) {
+        if (reason == QSystemTrayIcon::Trigger || reason == QSystemTrayIcon::DoubleClick) {
+            showNormal();
+            activateWindow();
+            raise();
+        }
+    });
     m_tray->show();
 
     // 任务完成/失败/熔断 → 托盘气泡 + 邮件通知（规格 11 触发条件）
