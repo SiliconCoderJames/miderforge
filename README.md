@@ -32,7 +32,7 @@ Miderforge 是一款可长期驻留的 Windows 桌面 AI Agent。你用中文下
 
 | 资产 | 说明 |
 |---|---|
-| 🧠 **记忆** | L0–L3 分层记忆：核心记忆常驻注入、会话摘要滚动、档案库全文检索（FTS5），带一致性失效与容量纪律 |
+| 🧠 **记忆** | L0–L3 分层记忆：核心记忆常驻注入、会话摘要滚动、档案库全文（FTS5）+ 语义（向量 RRF）混合检索，带一致性失效与容量纪律 |
 | 🧰 **技能库** | 成功任务方案自动固化为可复用 `SKILL.md`（agentskills.io 风格），带使用统计与自动降权 |
 | 🗄️ **数据库** | SQLite（WAL + FTS5 trigram）承载记忆/技能/任务/事件的全量持久化与审计 |
 
@@ -42,7 +42,7 @@ Miderforge 是一款可长期驻留的 Windows 桌面 AI Agent。你用中文下
 
 **🧠 记忆与成长（核心卖点）**
 
-- 🧠 **分层记忆** — L0–L3：核心记忆常驻注入、会话摘要滚动、档案库 FTS5 全文检索，Agent 越用越懂你
+- 🧠 **分层记忆** — L0–L3：核心记忆常驻注入、会话摘要滚动、档案库 FTS5 + 语义向量混合检索（RRF 融合，嵌入失败自动降级），Agent 越用越懂你
 - 🔄 **一致性失效 + 矛盾扫描** — 收尾改写核心记忆时归档被覆盖的旧档案；「🔍 矛盾扫描」检测相似冲突对供人工裁决
 - 🧰 **技能库自沉淀** — 成功任务方案自动固化为 `SKILL.md`，带使用统计与自动降权，渐进披露加载
 - 🌱 **类人学习闭环** — 每任务结束由 LLM 提炼摘要/教训/偏好改写入库，下个任务动态检索注入，形成正循环
@@ -140,7 +140,7 @@ Miderforge/
 ├── src/
 │   ├── app/        # Qt 界面：主窗口、会话视图、向导、主题
 │   ├── core/       # AgentLoop 状态机、任务调度、三档路由
-│   ├── llm/        # HttpClient(curl)、SseParser、ChatClient、ProviderManager
+│   ├── llm/        # HttpClient(curl)、SseParser、ChatClient、EmbeddingClient、ProviderManager
 │   ├── memory/     # 分层记忆（L1 文件 + L3 库）与 FTS5 检索
 │   ├── skills/     # SKILL.md 读写、自沉淀闭环、使用统计
 │   ├── tools/      # 工具注册表、文件/命令工具、权限门、沙箱
@@ -164,7 +164,7 @@ Miderforge/
 | **M4** | 三档路由 + 故障转移 + 托盘 + 邮件通知 | ✅ |
 | **M4.5** | 记忆分层强化：一致性失效 / L1 容量纪律 / 增量 token 记账 / L2 淘汰评分化 / 跨层预取 | ✅ |
 | **M5** | 中断分级：四级中断模型（系统/熔断/用户/操作级）、暂停恢复、取消令牌传导、checkpoint 续跑 | ✅ |
-| **M6** | 生态互通：L3 语义检索（内置 sqlite-vec）+ [AgentHive](https://github.com/SiliconCoderJames/AgentHive) 蜂巢接入（技能市场 / 共享知识库 / 用户记忆 / Token 观测，仅 127.0.0.1） | 🚧 规划中 |
+| **M6** | 生态互通：L3 语义检索 ✅（FTS5 + 向量 RRF 混合，随 zhipu Key 开箱即用）+ [AgentHive](https://github.com/SiliconCoderJames/AgentHive) 蜂巢接入（技能市场 / 共享知识库 / 用户记忆 / Token 观测，仅 127.0.0.1）🚧 | 🚧 进行中 |
 
 > 单元测试 85 个用例（doctest，只依赖 mider_core、可完全脱离 GUI 运行）全部通过。涉及真实 API Key / SMTP 授权码的端到端项请在配置后自行复核，明细见 [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md)。
 

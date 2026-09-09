@@ -8,6 +8,7 @@
 #include "core/Scheduler.h"
 #include "db/Database.h"
 #include "llm/ChatClient.h"
+#include "llm/EmbeddingClient.h"
 #include "llm/ProviderManager.h"
 #include "memory/MemoryManager.h"
 #include "notify/EmailNotifier.h"
@@ -27,6 +28,7 @@
 #include <QSessionManager>
 #include <QThread>
 #include <QTranslator>
+#include <memory>
 #include <spdlog/spdlog.h>
 #ifdef Q_OS_WIN
 #include <windows.h>
@@ -109,6 +111,20 @@ int main(int argc, char* argv[]) {
     MemoryManager memory(&db, appdirs::file(QStringLiteral("memory/core.md")));
     if (memory.loadL1().isEmpty())
         memory.saveL1(QStringLiteral("# 用户画像\n\n# 编码偏好\n\n# 禁区\n\n# 活跃项目状态\n"));
+    // M6-A 语义检索：嵌入器复用 embedding.provider 指向供应商的 base_url 与 API Key（不引入第二套密钥）。
+    // 未启用/该供应商未配 Key 时不注入，检索自动走纯 FTS5 降级
+    std::unique_ptr<EmbeddingClient> embedder;
+    if (providers.embedding().enabled) {
+        if (const auto* p = providers.provider(providers.embedding().provider); p && p->configured) {
+            embedder = std::make_unique<EmbeddingClient>(
+                EmbeddingClient::Config{p->baseUrl, p->key, providers.embedding().model});
+            memory.setEmbedder(embedder.get());
+            if (auto lg = logutil::logger())
+                lg->info("语义检索已启用：provider={} model={}",
+                         providers.embedding().provider.toStdString(),
+                         providers.embedding().model.toStdString());
+        }
+    }
     SkillManager skills(&db, appdirs::file(QStringLiteral("skills")));
     skills.ensureSeedSkill(); // 规格交付物：首技能种子 cpp-cmake-qt-build
 

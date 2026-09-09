@@ -85,3 +85,18 @@ git ls-files | findstr /i "key secret token env pass"
 - SSRF 防护：http_fetch 仅公网地址——DNS 解析后按 IP 公网性判定并钉住解析结果，重定向逐跳重新校验
 - 子进程由 Job Object 管理（内存上限 2GB、单命令 120s 超时、退出连带终止），环境变量显式白名单构造（不继承父进程；身份变量 USERNAME/HOMEDRIVE/HOMEPATH/PROGRAMDATA 不透传）
 - 中断分级（M5）：暂停/恢复在轮边界安全点生效；工具执行中取消经取消令牌直达进程 kill；退出/关机时在跑任务自动放回队列，重启后从断点续跑（tasks.context_json）
+
+## 5. 语义检索（M6-A，可选）
+
+`config/providers.json` 顶层 `embedding` 节控制 L3 记忆的语义召回；默认模板已启用并指向 zhipu
+（复用其 API Key 与 base_url，**不需要额外的密钥**）：
+
+```json
+"embedding": { "enabled": true, "provider": "zhipu", "model": "embedding-3" }
+```
+
+- `provider` 必须是 `providers` 数组里已配置 Key 的供应商名；否则语义通道自动关闭（纯 FTS5 检索）
+- 关闭方式：`"enabled": false`；改后重启生效
+- 嵌入调用从任务收尾的检索路径发出（仅 https 公网端点，SSRF 校验与 http_fetch 同源）；
+  嵌入失败不影响检索主路
+- 密钥卫生：API Key 仍只以 DPAPI 密文落盘，embedding 节本身不含任何密钥

@@ -74,3 +74,12 @@
 - [x] P2 暂停/恢复：轮边界安全点挂起（不打断在跑工具/流式），m_history 保持可续；挂起期间任务行 status='paused'，取消可直接判停，启动恢复将遗留 paused 行重新入队（代码审查验证，GUI 交互待人工）(2026-09-08)
 - [x] P0 接入 OS 会话信号：aboutToQuit + commitDataRequest（WM_QUERYENDSESSION）→ shutdownRequeue（在跑任务放回 queued、请求工具快速中止，与启动恢复闭环）(2026-09-08)
 - [x] checkpoint 续跑：tasks.context_json 列（增量迁移）每轮末/挂起时持久化 history/轮次/路由档/token 预算；Scheduler 重新入队时经 startWithCheckpoint 从断点的下一轮继续，终态自动清除断点（单测覆盖迁移列读写与清除）(2026-09-08)
+
+## M6-A：L3 语义检索（已完成，端到端待真实 Key 复核）
+
+- [x] EmbeddingClient：批量嵌入 + 响应解析（index 对位/维度一致性/缺项报错，单测）+ https 公网端点校验（单测）(2026-09-09)
+- [x] NetGuard 严格公网判定：修复 Qt6.8 isGlobal() 误判 RFC1918 的 SSRF 缺口（fetch 与嵌入共用，字面私有 IP 回归单测）(2026-09-09)
+- [x] 混合检索：FTS5 + 向量余弦 RRF 融合；BLOB 绑定/读取分支（0x00 不截断）；updateContent 向量失效；backfillEmbeddings 渐进补齐（全部单测，94 用例全绿）(2026-09-09)
+- [x] 无嵌入器时行为与 M5 完全一致（既有记忆用例零改动通过，回归保护）(2026-09-09)
+- [ ] 真实 Key 端到端：zhipu embedding-3 召回质量人工复核（配置后检索「语义近词面远」的记忆观察是否命中）
+- [ ] 供应商页 embedding 配置 UI（当前改 providers.json + 重启）

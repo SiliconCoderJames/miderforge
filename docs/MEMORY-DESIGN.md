@@ -62,6 +62,12 @@ token 记账口径为**增量制**：每轮只计「本轮新增输入（本轮 
   多词 AND 组合；
 - **查询演化**：首轮用任务原文，之后混入模型最近的反思/计划文本——RAG 的
   「动态相关」才有意义，25 轮注入同一批记忆等于没有记忆。
+- **语义向量通道（M6-A）**：注入嵌入器后（providers.json 顶层 `embedding` 节，复用
+  供应商 Key），检索升级为双通道——FTS5 字面召回 + 向量余弦召回（查询与全部已嵌入
+  active 记忆算 cosine，Top20），RRF（k=60）融合名次。缺向量的条目由
+  `backfillEmbeddings` 每轮渐进补齐（限 8 条控网络开销）；向量存 `memories.embedding`
+  BLOB（float32 小端），内容更新即置 NULL 失效重嵌（write-through invalidation）。
+  嵌入失败/未配置静默降级纯 FTS5，主路永不因语义通道受阻。
 
 ## 六、Roadmap（后续）
 
@@ -69,3 +75,14 @@ token 记账口径为**增量制**：每轮只计「本轮新增输入（本轮 
 - ~~跨层预取：任务开始时按目标预取相关技能~~ ✅ 已完成（2026-09-09，`searchRelevant` 拆词 OR + CJK 滑窗，提示词 ⭐ 前排标注；只做注意力预取、不全文注入，保持渐进披露与统计诚实）
 - ~~记忆一致性检查~~ ✅ v1 已完成（2026-09-09）：**确定性候选对检测 + 人工裁决**。`findContradictionCandidates` 用字符三元组 Dice 相似度（中文友好、免分词）找出事实类记忆中"高度相似但不相同"（0.35≤dice≤0.95）的对；记忆视图「🔍 矛盾扫描」按钮人工裁决归档哪条。
 - **矛盾扫描 v2（LLM 语义裁决）** ✅ 已实现（2026-09-09）：`AdjudicationService` 持独立 ChatClient 实例（不与 AgentLoop 主链路抢占），判定走 fast 档；`parseVerdicts` 纯逻辑解析（jsonextract 提取 + 标签白名单 contradiction/duplicate/complement + id 双向对齐候选对 + 同对首条胜出，幻觉 id 与非法标签分别过滤/归 unknown）；UI 列表前缀标注 [矛盾]/[重复]/[互补]，AI 失败可完全降级回人工裁决。
+
+## 七、M6-A 语义检索落地记录（2026-09-09）
+
+- `EmbeddingClient`：同步批量嵌入（curl 直连 `/embeddings`），https + 公网端点校验（`util/NetGuard`
+  严格公网判定，修复 Qt6.8 `isGlobal()` 误判 RFC1918 私有段的 SSRF 缺口，http_fetch 同步受益）；
+- 嵌入配置：providers.json 顶层 `embedding` 节（enabled/provider/model），随 `writeJson` 全量回写
+  防止被 saveKey/setActive 抹除；模板默认随 zhipu 启用；
+- 决策：**不启用 vec0 虚表**（维度在建表时锁死、换嵌入模型需重建；个人级记忆量千条级，
+  应用层余弦扫描毫秒级），`loadVecExtension` 保持加载成功即可；
+- 已知边界：端到端召回质量需真实 Key 人工复核（ACCEPTANCE.md）；供应商页暂无 embedding
+  配置 UI（改 config/providers.json 后重启生效）。
