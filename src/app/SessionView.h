@@ -6,6 +6,7 @@
 #include <QComboBox>
 #include <QElapsedTimer>
 #include <QLabel>
+#include <QListWidget>
 #include <QPlainTextEdit>
 #include <QScrollArea>
 #include <QTimer>
@@ -16,10 +17,12 @@ class QVBoxLayout;
 
 namespace miderforge {
 
+class Database;
+
 class SessionView : public QWidget {
     Q_OBJECT
 public:
-    SessionView(AgentLoop* loop, QWidget* parent = nullptr);
+    SessionView(Database* db, AgentLoop* loop, QWidget* parent = nullptr);
 
     void newSession();
     void focusInput();
@@ -41,16 +44,26 @@ private slots:
     void onSend();
     void onStop();
     void onPauseToggled(); // M5 P2：暂停/继续切换
+    void onSessionSelected(); // 会话列表点击 → 切换/恢复会话
+    void onNewSessionClicked();
 
 private:
     QWidget* buildStatusStrip();
     QWidget* buildInputArea();
+    QWidget* buildSessionPanel();
     ToolCallCard* makeCard(const QString& callId, const QString& toolName);
     void appendToFeed(QWidget* w);
     void scrollToEnd();
     void setStateLabel(const QString& text, const QColor& color);
     void startGoal(const QString& goal);
     void popQueueIfIdle();
+    // 会话持久化（Claude/Codex 式会话列表）
+    void ensureSession(const QString& firstGoal);
+    void persistMessage(const char* role, const QString& content);
+    void loadSessions();
+    void refreshSessionList();
+    void clearFeed();
+    bool switchToSession(qint64 id);
 
     // AgentLoop 事件
     void onTaskStarted(const QString& goal);
@@ -66,6 +79,11 @@ private:
     void onStreamRetrying(const QString& reason);
 
     AgentLoop* m_loop = nullptr;
+    Database* m_db = nullptr;
+
+    // 会话列表面板（Claude/Codex 式）
+    QListWidget* m_sessionList = nullptr;
+    qint64 m_currentSessionId = -1;
 
     // 顶部状态条
     QLabel* m_goalLabel = nullptr;

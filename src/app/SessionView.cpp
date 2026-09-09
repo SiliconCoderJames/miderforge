@@ -2,8 +2,11 @@
 #include "app/SessionView.h"
 #include "app/Theme.h"
 #include "core/AppContext.h"
+#include "db/Database.h"
 #include <QBoxLayout>
 #include <QComboBox>
+#include <QDateTime>
+#include <QMessageBox>
 #include <QPushButton>
 #include <QScrollBar>
 #include <QShortcut>
@@ -11,11 +14,18 @@
 
 namespace miderforge {
 
-SessionView::SessionView(AgentLoop* loop, QWidget* parent)
-    : QWidget(parent), m_loop(loop) {
-    auto* rootLay = new QVBoxLayout(this);
-    rootLay->setContentsMargins(8, 6, 8, 8);
+SessionView::SessionView(Database* db, AgentLoop* loop, QWidget* parent)
+    : QWidget(parent), m_loop(loop), m_db(db) {
+    auto* outer = new QHBoxLayout(this);
+    outer->setContentsMargins(8, 6, 8, 8);
+    outer->setSpacing(8);
+    outer->addWidget(buildSessionPanel());
+
+    auto* content = new QWidget(this);
+    auto* rootLay = new QVBoxLayout(content);
+    rootLay->setContentsMargins(0, 0, 0, 0);
     rootLay->setSpacing(6);
+    outer->addWidget(content, 1);
 
     rootLay->addWidget(buildStatusStrip());
 
@@ -74,6 +84,147 @@ SessionView::SessionView(AgentLoop* loop, QWidget* parent)
     });
 
     setStateLabel(QStringLiteral("空闲"), theme::colors::textDim);
+
+    loadSessions();
+}
+
+QWidget* SessionView::buildSessionPanel() {
+    auto* panel = new QWidget(this);
+    panel->setFixedWidth(190);
+    panel->setStyleSheet(QStringLiteral(
+        "QWidget{background-color:%1;border:1px solid #35383d;border-radius:6px;}")
+                            .arg(theme::colors::panel.name()));
+    auto* lay = new QVBoxLayout(panel);
+    lay->setContentsMargins(6, 6, 6, 6);
+    lay->setSpacing(6);
+
+    auto* newBtn = new QPushButton(QStringLiteral("＋ 新会话"), panel);
+    newBtn->setObjectName(QStringLiteral("primaryBtn"));
+    newBtn->setFixedHeight(30);
+    connect(newBtn, &QPushButton::clicked, this, &SessionView::onNewSessionClicked);
+    lay->addWidget(newBtn);
+
+    m_sessionList = new QListWidget(panel);
+    m_sessionList->setStyleSheet(QStringLiteral(
+        "QListWidget{background:transparent;border:none;font-size:9pt;outline:none;}"
+        "QListWidget::item{height:34px;border-radius:6px;padding-left:6px;color:%2;margin:1px 0;}"
+        "QListWidget::item:hover{background-color:%1;}"
+        "QListWidget::item:selected{background-color:%3;color:white;}")
+                                     .arg(theme::colors::window.name(), theme::colors::textDim.name(),
+                                          theme::colors::accent.name()));
+    m_sessionList->setToolTip(QStringLiteral("历史会话（点击恢复消息流）"));
+    connect(m_sessionList, &QListWidget::currentItemChanged, this,
+            [this](QListWidgetItem* cur, QListWidgetItem*) {
+                if (cur)
+                    onSessionSelected();
+            });
+    lay->addWidget(m_sessionList, 1);
+    return panel;
+}
+
+void SessionView::loadSessions() {
+    refreshSessionList();
+}
+
+void SessionView::refreshSessionList() {
+    if (!m_db)
+        return;
+    QSignalBlocker blocker(m_sessionList);
+    m_sessionList->clear();
+    const auto rows = m_db->query(QStringLiteral(
+        "SELECT id, title, updated_at FROM sessions ORDER BY updated_at DESC LIMIT 100"), {});
+    for (const auto& r : rows) {
+        const QString title = r.value("title").toString();
+        const QString time = QDateTime::fromSecsSinceEpoch(r.value("updated_at").toLongLong())
+                                 .toString(QStringLiteral("MM-dd hh:mm"));
+        auto* item = new QListWidgetItem(QStringLiteral("%1\n%2").arg(title, time), m_sessionList);
+        item->setToolTip(title);
+        item->setData(Qt::UserRole, r.value("id").toLongLong());
+        if (r.value("id").toLongLong() == m_currentSessionId)
+            m_sessionList->setCurrentItem(item);
+    }
+}
+
+void SessionView::ensureSession(const QString& firstGoal) {
+    if (!m_db || m_currentSessionId > 0)
+        return;
+    QString title = firstGoal.simplified();
+    if (title.length() > 24)
+        title = title.left(24) + QStringLiteral("…");
+    const qint64 now = QDateTime::currentSecsSinceEpoch();
+    qint64 id = 0;
+    if (m_db->executeInsert(QStringLiteral(
+            "INSERT INTO sessions(title, created_at, updated_at) VALUES(?,?,?)"), {title, now, now}, &id))
+        m_currentSessionId = id;
+    refreshSessionList();
+}
+
+void SessionView::persistMessage(const char* role, const QString& content) {
+    if (!m_db || m_currentSessionId < 0 || content.isEmpty())
+        return;
+    const qint64 now = QDateTime::currentSecsSinceEpoch();
+    m_db->executeInsert(QStringLiteral(
+        "INSERT INTO messages(session_id, role, content, ts) VALUES(?,?,?,?)"),
+        {m_currentSessionId, QString::fromLatin1(role), content, now}, nullptr);
+    m_db->execute(QStringLiteral("UPDATE sessions SET updated_at=? WHERE id=?"), {now, m_currentSessionId});
+    refreshSessionList();
+}
+
+bool SessionView::switchToSession(qint64 id) {
+    if (!m_db || id == m_currentSessionId)
+        return true;
+    if (m_loop->isRunning()) {
+        QMessageBox::information(this, QStringLiteral("Miderforge"),
+                                 QStringLiteral("任务执行中，暂不能切换会话；可先停止或等待完成。"));
+        return false;
+    }
+    m_currentSessionId = id;
+    clearFeed();
+    m_goalLabel->setText(QStringLiteral("当前任务：—"));
+    m_roundLabel->setText(QStringLiteral("第 0/25 轮"));
+    m_tokensLabel->setText(QStringLiteral("tokens: 0"));
+    m_elapsedLabel->setText(QStringLiteral("已用时 00:00"));
+    setStateLabel(QStringLiteral("历史会话"), theme::colors::textDim);
+    const auto rows = m_db->query(QStringLiteral(
+        "SELECT role, content FROM messages WHERE session_id=? ORDER BY id ASC LIMIT 500"), {id});
+    for (const auto& r : rows) {
+        const QString role = r.value("role").toString();
+        const QString content = r.value("content").toString();
+        if (role == QStringLiteral("user")) {
+            appendToFeed(new UserBubble(content, m_feedHost));
+        } else {
+            auto* block = new AssistantBlock(m_feedHost);
+            block->setFinalContent(content);
+            block->finishStream();
+            m_feedLay->addWidget(block);
+        }
+    }
+    scrollToEnd();
+    refreshSessionList();
+    return true;
+}
+
+void SessionView::clearFeed() {
+    while (m_feedLay->count() > 1) { // 索引 0 是 stretch
+        QLayoutItem* item = m_feedLay->takeAt(m_feedLay->count() - 1);
+        if (item->widget())
+            item->widget()->deleteLater();
+        delete item;
+    }
+    m_curAssistant = nullptr;
+}
+
+void SessionView::onSessionSelected() {
+    QListWidgetItem* cur = m_sessionList->currentItem();
+    if (!cur)
+        return;
+    switchToSession(cur->data(Qt::UserRole).toLongLong());
+}
+
+void SessionView::onNewSessionClicked() {
+    newSession();
+    m_sessionList->setCurrentItem(nullptr);
+    focusInput();
 }
 
 QWidget* SessionView::buildStatusStrip() {
@@ -228,6 +379,8 @@ void SessionView::onSend() {
 }
 
 void SessionView::startGoal(const QString& goal) {
+    ensureSession(goal); // 首条目标创建会话记录，后续消息归属同一会话
+    persistMessage("user", goal);
     appendToFeed(new UserBubble(goal, m_feedHost));
     m_curAssistant = nullptr;
     m_roundCards.clear();
@@ -360,6 +513,10 @@ void SessionView::onLoopFinished(bool ok, const QString& summary) {
         m_curAssistant->finishStream();
         m_curAssistant = nullptr;
     }
+    persistMessage("assistant",
+                   summary.isEmpty()
+                       ? (ok ? QStringLiteral("（已完成）") : QStringLiteral("（已熔断）"))
+                       : summary);
     m_elapsedTimer.stop();
     m_sendBtn->setEnabled(true);
     m_stopBtn->setEnabled(false);
@@ -381,6 +538,7 @@ void SessionView::onLoopFailed(const QString& error) {
     note->setStyleSheet(QStringLiteral("color:%1;").arg(theme::colors::error.name()));
     note->setWordWrap(true);
     appendToFeed(note);
+    persistMessage("assistant", QStringLiteral("✖ 失败：%1").arg(error));
     m_curAssistant = nullptr;
     popQueueIfIdle();
 }
@@ -398,14 +556,9 @@ void SessionView::newSession() {
         m_loop->cancel();
     m_pendingQueue.clear();
     emit queueCountChanged(0);
-    // 清空消息流
-    while (m_feedLay->count() > 1) { // 索引 0 是 stretch
-        QLayoutItem* item = m_feedLay->takeAt(m_feedLay->count() - 1);
-        if (item->widget())
-            item->widget()->deleteLater();
-        delete item;
-    }
-    m_curAssistant = nullptr;
+    clearFeed();
+    m_currentSessionId = -1; // 新会话：下一条目标入库时创建新记录
+    m_sessionList->setCurrentItem(nullptr);
     m_roundCards.clear();
     m_idCards.clear();
     m_goalLabel->setText(QStringLiteral("当前任务：—"));

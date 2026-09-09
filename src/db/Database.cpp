@@ -137,6 +137,21 @@ bool Database::migrate() {
         ))",
         "CREATE INDEX IF NOT EXISTS idx_events_task ON events(task_id, ts)",
         "CREATE INDEX IF NOT EXISTS idx_events_type_ts ON events(type, ts)",
+        // ---- sessions/messages（会话列表 + 消息流持久化；tool 卡片不入库，恢复时按文本渲染） ----
+        R"(CREATE TABLE IF NOT EXISTS sessions (
+            id INTEGER PRIMARY KEY,
+            title TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        ))",
+        R"(CREATE TABLE IF NOT EXISTS messages (
+            id INTEGER PRIMARY KEY,
+            session_id INTEGER NOT NULL,
+            role TEXT NOT NULL,
+            content TEXT NOT NULL,
+            ts INTEGER NOT NULL
+        ))",
+        "CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, id)",
     };
     for (const char* ddl : kDdl) {
         char* err = nullptr;

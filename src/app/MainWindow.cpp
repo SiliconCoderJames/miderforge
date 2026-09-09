@@ -195,7 +195,7 @@ void MainWindow::buildCentral() {
 
     // ---- 中央堆叠区 ----
     m_stack = new QStackedWidget(central);
-    m_sessionView = new SessionView(m_loop, m_stack);
+    m_sessionView = new SessionView(m_db, m_loop, m_stack);
     m_stack->addWidget(m_sessionView); // 0 会话
     m_stack->addWidget(new TaskQueueView(m_db, m_loop, m_stack)); // 1 任务队列（M2 实装）
     m_stack->addWidget(new SkillView(m_skills, m_stack)); // 2 技能库（M3 实装）
