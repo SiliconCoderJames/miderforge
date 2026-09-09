@@ -24,6 +24,12 @@
       "configurePreset": "win64",
       "configuration": "Debug",
       "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "win64-release",
+      "configurePreset": "win64",
+      "configuration": "Release",
+      "output": { "outputOnFailure": true }
     }
   ]
 }

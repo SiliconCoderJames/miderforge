@@ -9,8 +9,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-4a8cff.svg)](LICENSE)
 [![C++](https://img.shields.io/badge/C%2B%2B-20-00599C.svg?logo=c%2B%2B&logoColor=white)](https://isocpp.org)
 [![Qt](https://img.shields.io/badge/Qt-6.8-41CD52.svg?logo=qt&logoColor=white)](https://www.qt.io)
-[![Platform](https://img.shields.io/badge/Platform-Windows%2010%2B-0078D6.svg?logo=windows&logoColor=white)](https://github.com)
-[![CMake](https://img.shields.io/badge/CMake-3.24%2B-e06c60.svg?logo=cmake&logoColor=white)](#快速开始)
+[![Platform](https://img.shields.io/badge/Platform-Windows%2010%2B-0078D6.svg?logo=windows&logoColor=white)](#-快速开始)
+[![CMake](https://img.shields.io/badge/CMake-3.24%2B-e06c60.svg?logo=cmake&logoColor=white)](#-快速开始)
 
 [![CI](https://github.com/SiliconCoderJames/miderforge/actions/workflows/ci.yml/badge.svg)](https://github.com/SiliconCoderJames/miderforge/actions/workflows/ci.yml)
 [![Docs](https://img.shields.io/badge/docs-CONFIG%20%7C%20ACCEPTANCE%20%7C%20MEMORY--DESIGN-8A2BE2.svg?logo=readthedocs&logoColor=white)](docs/CONFIG.md)
@@ -68,16 +68,16 @@ Miderforge 是一款可长期驻留的 Windows 桌面 AI Agent。你用中文下
 
 ```bat
 :: 1. 获取 vcpkg（已有可跳过）
-git clone https://github.com/microsoft/vcpkg E:\FILE\APP\vcpkg
-E:\FILE\APP\vcpkg\bootstrap-vcpkg.bat -disableMetrics
+git clone https://github.com/microsoft/vcpkg C:\vcpkg
+C:\vcpkg\bootstrap-vcpkg.bat -disableMetrics
 
-:: 2. 配置 + 构建（vcpkg manifest 自动安装依赖）
-set VCPKG_ROOT=E:\FILE\APP\vcpkg
+:: 2. 配置 + 构建（vcpkg manifest 自动安装依赖；Qt 路径不同见下方说明）
+set VCPKG_ROOT=C:\vcpkg
 cmake --preset win64
-cmake --build build --config Release --target miderforge mider_tests
+cmake --build --preset win64-release
 
 :: 3. 运行单元测试（必须全绿）
-ctest --preset win64-debug
+ctest --preset win64-release
 
 :: 4. 启动
 build\Release\miderforge.exe
