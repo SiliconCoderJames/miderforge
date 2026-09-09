@@ -35,6 +35,28 @@ bool isLoopbackHost(const QString& host) {
     return host == QStringLiteral("127.0.0.1") || host == QStringLiteral("localhost")
            || host == QStringLiteral("::1");
 }
+
+// /api/health 响应 → 友好文案（AgentHive 返回 {"code":0,"message":"ok","data":{service,version,...}}）
+QString friendlyHealth(const QByteArray& resp) {
+    const int sep = resp.indexOf("\r\n\r\n");
+    const QByteArray body = sep >= 0 ? resp.mid(sep + 4) : resp;
+    QJsonParseError pe{};
+    const QJsonDocument doc = QJsonDocument::fromJson(body, &pe);
+    if (pe.error == QJsonParseError::NoError && doc.isObject()) {
+        const QJsonObject obj = doc.object();
+        if (obj.value(QStringLiteral("code")).toInt(-1) == 0) {
+            const QJsonObject data = obj.value(QStringLiteral("data")).toObject();
+            const QString svc = data.value(QStringLiteral("service")).toString();
+            const QString ver = data.value(QStringLiteral("version")).toString();
+            return QStringLiteral("✅ 已连接：%1%2 · 服务正常")
+                .arg(svc.isEmpty() ? QStringLiteral("AgentHive") : svc,
+                     ver.isEmpty() ? QString() : QStringLiteral(" v%1").arg(ver));
+        }
+        if (obj.contains(QStringLiteral("message")))
+            return QStringLiteral("⚠️ 服务返回异常：%1").arg(obj.value(QStringLiteral("message")).toString());
+    }
+    return QStringLiteral("已收到响应：%1").arg(QString::fromUtf8(body).trimmed().left(120));
+}
 } // namespace
 
 SettingsDialog::SettingsDialog(ProviderManager* pm, EmailNotifier* mail,
@@ -329,28 +351,31 @@ void SettingsDialog::onTestHive() {
         m_hiveStatus->setText(QStringLiteral("已拒绝：仅允许 127.0.0.1 / ::1 / localhost（设计约束：本机服务）"));
         return;
     }
+    m_hiveResp.clear();
     m_hiveStatus->setText(QStringLiteral("正在连接 %1:%2（/api/health）…").arg(host).arg(port));
     auto* sock = new QTcpSocket(this);
     connect(sock, &QTcpSocket::connected, sock, [sock] {
         sock->write("GET /api/health HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n");
     });
     connect(sock, &QTcpSocket::readyRead, sock, [this, sock] {
-        const QByteArray body = sock->readAll();
-        static const QByteArray kMark = "\r\n\r\n";
-        const int sep = body.indexOf(kMark);
-        const QByteArray payload = sep >= 0 ? body.mid(sep + 4) : body;
-        m_hiveStatus->setText(QStringLiteral("✅ AgentHive 响应：%1").arg(QString::fromUtf8(payload).left(180)));
-        sock->disconnectFromHost();
+        m_hiveResp += sock->readAll();
     });
-    connect(sock, &QTcpSocket::errorOccurred, sock, [this, sock](QAbstractSocket::SocketError) {
-        m_hiveStatus->setText(QStringLiteral("连接失败：%1").arg(sock->errorString()));
+    connect(sock, &QTcpSocket::disconnected, sock, [this, sock] {
+        if (!m_hiveResp.isEmpty())
+            m_hiveStatus->setText(friendlyHealth(m_hiveResp));
         sock->deleteLater();
     });
-    connect(sock, &QTcpSocket::disconnected, sock, &QObject::deleteLater);
+    connect(sock, &QTcpSocket::errorOccurred, sock, [this, sock, port](QAbstractSocket::SocketError) {
+        // 已收到响应后的连接关闭（Connection: close）不按失败处理，避免覆盖成功文案
+        if (m_hiveResp.isEmpty())
+            m_hiveStatus->setText(
+                QStringLiteral("❌ 连接失败：%1（请确认 AgentHive 服务已在本机 %2 端口启动）")
+                    .arg(sock->errorString()).arg(port));
+        sock->deleteLater();
+    });
     QTimer::singleShot(4000, sock, [sock] {
-        if (sock->state() != QAbstractSocket::UnconnectedState) {
+        if (sock->state() != QAbstractSocket::UnconnectedState)
             sock->abort();
-        }
     });
     sock->connectToHost(host, port);
 }

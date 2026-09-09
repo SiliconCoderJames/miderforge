@@ -69,6 +69,7 @@ private:
     QLineEdit* m_hiveName = nullptr;
     QLineEdit* m_hiveKey = nullptr;
     QLabel* m_hiveStatus = nullptr;
+    QByteArray m_hiveResp;      // 健康检查响应累积（分片到达）
     QByteArray m_hiveKeyCipher; // 已存密文（与输入框互补：输入框为空时保留原密文）
 };
 
