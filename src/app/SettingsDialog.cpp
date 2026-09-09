@@ -2,48 +2,146 @@
 #include "app/SettingsDialog.h"
 #include "app/Theme.h"
 #include "core/AppContext.h"
+#include "util/AppDirs.h"
+#include "util/Dpapi.h"
 #include <QCheckBox>
+#include <QComboBox>
+#include <QDir>
 #include <QFormLayout>
 #include <QHBoxLayout>
 #include <QHeaderView>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QLabel>
 #include <QLineEdit>
+#include <QListWidget>
 #include <QMessageBox>
 #include <QPushButton>
 #include <QSpinBox>
+#include <QStackedWidget>
 #include <QTabWidget>
 #include <QTableWidget>
+#include <QTcpSocket>
+#include <QTimer>
 #include <QVBoxLayout>
 
 namespace miderforge {
 
-SettingsDialog::SettingsDialog(ProviderManager* pm, EmailNotifier* mail, QWidget* parent)
-    : QDialog(parent), m_pm(pm), m_mail(mail) {
-    setWindowTitle(QStringLiteral("Miderforge 设置"));
-    resize(720, 520);
-    auto* lay = new QVBoxLayout(this);
-    auto* tabs = new QTabWidget(this);
-    tabs->addTab(buildProviderTab(), QStringLiteral("供应商"));
-    tabs->addTab(buildMailTab(), QStringLiteral("邮件"));
-    tabs->addTab(buildBudgetTab(), QStringLiteral("预算与熔断"));
-    tabs->addTab(buildMemoryTab(), QStringLiteral("记忆"));
-    // ⑤外观：深色主题为产品默认（规格 4.8），v1 不提供切换
-    tabs->addTab(new QLabel(QStringLiteral("外观：当前为深色主题（Fusion + 规格色板），v1 固定。"), this),
-                 QStringLiteral("外观"));
-    lay->addWidget(tabs);
+namespace {
+constexpr const char* kHiveRel = "config/hive.json";
 
-    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Close, this);
-    connect(buttons, &QDialogButtonBox::accepted, this, &SettingsDialog::onSave);
-    connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
-    lay->addWidget(buttons);
+// 蜂巢是本地回环专属接口（设计约束），只接受环回地址；不经过 NetGuard 公网校验
+bool isLoopbackHost(const QString& host) {
+    return host == QStringLiteral("127.0.0.1") || host == QStringLiteral("localhost")
+           || host == QStringLiteral("::1");
+}
+} // namespace
+
+SettingsDialog::SettingsDialog(ProviderManager* pm, EmailNotifier* mail,
+                               const std::function<void(int)>& applyPermissionMode,
+                               QWidget* parent)
+    : QDialog(parent), m_pm(pm), m_mail(mail), m_applyPermissionMode(applyPermissionMode) {
+    setWindowTitle(QStringLiteral("Miderforge 设置"));
+    resize(780, 560);
+
+    // 左导航（Codex/ZCode 设置页样式）
+    m_nav = new QListWidget(this);
+    m_nav->setFixedWidth(168);
+    m_nav->setIconSize(QSize(18, 18));
+    m_nav->setStyleSheet(QStringLiteral(
+        "QListWidget{background-color:%1;border:none;border-right:1px solid %2;font-size:10pt;outline:none;}"
+        "QListWidget::item{height:38px;padding-left:14px;border-radius:6px;margin:2px 6px;color:%3;}"
+        "QListWidget::item:hover{background-color:%4;}"
+        "QListWidget::item:selected{background-color:%5;color:white;font-weight:bold;}")
+                             .arg(theme::colors::window.name(), theme::colors::panel.name(),
+                                  theme::colors::textDim.name(), theme::colors::panel.name(),
+                                  theme::colors::accent.name()));
+
+    const QStringList sections = {
+        QStringLiteral("通用"),
+        QStringLiteral("供应商"),
+        QStringLiteral("邮件"),
+        QStringLiteral("任务与预算"),
+        QStringLiteral("记忆与检索"),
+        QStringLiteral("蜂巢"),
+    };
+    for (const QString& s : sections)
+        m_nav->addItem(s);
+    connect(m_nav, &QListWidget::currentRowChanged, this, [this](int row) {
+        if (row >= 0)
+            m_pages->setCurrentIndex(row);
+    });
+
+    m_pages = new QStackedWidget(this);
+    m_pages->addWidget(buildGeneralPage());
+    m_pages->addWidget(buildProviderPage());
+    m_pages->addWidget(buildMailPage());
+    m_pages->addWidget(buildBudgetPage());
+    m_pages->addWidget(buildMemoryPage());
+    m_pages->addWidget(buildHivePage());
+
+    auto* stackRow = new QWidget(this);
+    auto* lay = new QHBoxLayout(stackRow);
+    lay->setContentsMargins(0, 0, 0, 0);
+    lay->setSpacing(0);
+    lay->addWidget(m_nav);
+    lay->addWidget(m_pages, 1);
+
+    auto* bottom = new QHBoxLayout();
+    bottom->setContentsMargins(12, 8, 12, 10);
+    bottom->addStretch(1);
+    auto* save = new QPushButton(QStringLiteral("保存"), this);
+    save->setDefault(true);
+    connect(save, &QPushButton::clicked, this, &SettingsDialog::onSave);
+    auto* close = new QPushButton(QStringLiteral("关闭"), this);
+    connect(close, &QPushButton::clicked, this, &QDialog::reject);
+    bottom->addWidget(save);
+    bottom->addWidget(close);
+    auto* bottomW = new QWidget(this);
+    bottomW->setLayout(bottom);
+
+    auto* root = new QVBoxLayout(this);
+    root->setContentsMargins(0, 0, 0, 0);
+    root->setSpacing(0);
+    root->addWidget(stackRow, 1);
+    root->addWidget(bottomW);
+
+    m_nav->setCurrentRow(0);
+    loadHive();
 }
 
-QWidget* SettingsDialog::buildProviderTab() {
+QWidget* SettingsDialog::buildGeneralPage() {
+    auto* w = new QWidget(this);
+    auto* form = new QFormLayout(w);
+    form->setContentsMargins(20, 18, 20, 18);
+
+    m_permCombo = new QComboBox(w);
+    m_permCombo->addItems({QStringLiteral("Suggest（读自动/写提案/命令与网络禁止）"),
+                           QStringLiteral("Auto Edit（工作区写自动，命令逐条确认）"),
+                           QStringLiteral("Full Access（全自动，网络白名单放行）")});
+    m_permCombo->setCurrentIndex(int(AppContext::instance().permissionMode));
+    form->addRow(QStringLiteral("权限模式"), m_permCombo);
+    form->addRow(QString(), new QLabel(
+        QStringLiteral("与 Codex/同源权限模型对齐；主窗口工具栏可随时切换，两侧始终同一状态。"), w));
+
+    auto* themeLabel = new QLabel(QStringLiteral("深色主题（Fusion + 规格色板），v1 固定。"), w);
+    form->addRow(QStringLiteral("外观"), themeLabel);
+
+    auto* langLabel = new QLabel(QStringLiteral("简体中文（内置文案），随系统输入法。"), w);
+    form->addRow(QStringLiteral("语言"), langLabel);
+    form->addRow(QString(), new QLabel(QStringLiteral("提示：供应商（模型与 API Key）在「供应商」页配置。"), w));
+    return w;
+}
+
+QWidget* SettingsDialog::buildProviderPage() {
     auto* w = new QWidget(this);
     auto* lay = new QVBoxLayout(w);
-    m_providerTable = new QTableWidget(int(m_pm->all().size()), 2, w);
-    m_providerTable->setHorizontalHeaderLabels({QStringLiteral("供应商"), QStringLiteral("接口地址 base_url")});
+    lay->setContentsMargins(20, 18, 20, 18);
+    m_providerTable = new QTableWidget(int(m_pm->all().size()), 3, w);
+    m_providerTable->setHorizontalHeaderLabels(
+        {QStringLiteral("供应商"), QStringLiteral("接口地址 base_url"), QStringLiteral("API Key")});
     m_providerTable->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    m_providerTable->verticalHeader()->setVisible(false);
     int row = 0;
     for (const auto& cfg : m_pm->all()) {
         auto* nameItem = new QTableWidgetItem(cfg.name);
@@ -55,6 +153,7 @@ QWidget* SettingsDialog::buildProviderTab() {
         key->setPlaceholderText(cfg.configured ? QStringLiteral("已配置（输入则覆盖）")
                                                : QStringLiteral("粘贴 API Key（DPAPI 加密存储）"));
         m_keyEdits.append(key);
+        m_providerTable->setCellWidget(row, 2, key);
         ++row;
     }
     lay->addWidget(new QLabel(QStringLiteral("API Key 修改后点〔保存〕；落盘为 DPAPI 密文。"), w), 0);
@@ -62,11 +161,12 @@ QWidget* SettingsDialog::buildProviderTab() {
     return w;
 }
 
-QWidget* SettingsDialog::buildMailTab() {
+QWidget* SettingsDialog::buildMailPage() {
     m_mail->loadConfig();
     const auto& cfg = m_mail->config();
     auto* w = new QWidget(this);
     auto* form = new QFormLayout(w);
+    form->setContentsMargins(20, 18, 20, 18);
     m_smtpUrl = new QLineEdit(cfg.smtpUrl.isEmpty() ? QStringLiteral("smtps://smtp.qq.com:465")
                                                     : cfg.smtpUrl, w);
     m_from = new QLineEdit(cfg.from, w);
@@ -87,10 +187,11 @@ QWidget* SettingsDialog::buildMailTab() {
     return w;
 }
 
-QWidget* SettingsDialog::buildBudgetTab() {
+QWidget* SettingsDialog::buildBudgetPage() {
     const auto& limits = AppContext::instance().limits;
     auto* w = new QWidget(this);
     auto* form = new QFormLayout(w);
+    form->setContentsMargins(20, 18, 20, 18);
     m_maxRounds = new QSpinBox(w);
     m_maxRounds->setRange(3, 200);
     m_maxRounds->setValue(limits.maxRounds);
@@ -104,18 +205,154 @@ QWidget* SettingsDialog::buildBudgetTab() {
     form->addRow(QStringLiteral("轮数上限"), m_maxRounds);
     form->addRow(QStringLiteral("单任务 token 限额"), m_maxTokens);
     form->addRow(QStringLiteral("连续相同失败次数"), m_maxSameFail);
+    form->addRow(QString(), new QLabel(QStringLiteral("熔断条件：轮数 / token / 同类失败次数任一触顶即熔断。"), w));
     return w;
 }
 
-QWidget* SettingsDialog::buildMemoryTab() {
+QWidget* SettingsDialog::buildMemoryPage() {
     auto* w = new QWidget(this);
     auto* form = new QFormLayout(w);
+    form->setContentsMargins(20, 18, 20, 18);
     m_l1Limit = new QSpinBox(w);
     m_l1Limit->setRange(500, 100000);
     m_l1Limit->setSingleStep(500);
     m_l1Limit->setValue(AppContext::instance().l1TokenLimit);
     form->addRow(QStringLiteral("L1 核心记忆上限（tokens）"), m_l1Limit);
+
+    auto* embLabel = new QLabel(
+        QStringLiteral("语义检索（L3 记忆）：FTS5 关键词 + 语义向量双通道融合。\n"
+                       "嵌入服务随「供应商」页启用（providers.json 顶层 embedding 节，模型默认 embedding-3）。"), w);
+    embLabel->setWordWrap(true);
+    form->addRow(QStringLiteral("语义检索"), embLabel);
     return w;
+}
+
+QWidget* SettingsDialog::buildHivePage() {
+    auto* w = new QWidget(this);
+    auto* form = new QFormLayout(w);
+    form->setContentsMargins(20, 18, 20, 18);
+
+    m_hiveEnabled = new QCheckBox(QStringLiteral("启用（连接本机 AgentHive 服务）"), w);
+    m_hiveHost = new QLineEdit(QStringLiteral("127.0.0.1"), w);
+    m_hivePort = new QLineEdit(QStringLiteral("8787"), w);
+    m_hivePort->setMaximumWidth(90);
+    auto* addrRow = new QHBoxLayout();
+    addrRow->addWidget(m_hiveHost);
+    addrRow->addWidget(m_hivePort);
+    auto* addrW = new QWidget(w);
+    addrW->setLayout(addrRow);
+
+    m_hiveName = new QLineEdit(QStringLiteral("Miderforge"), w);
+    m_hiveKey = new QLineEdit(w);
+    m_hiveKey->setEchoMode(QLineEdit::Password);
+    m_hiveKey->setPlaceholderText(QStringLiteral("agent-cli register 得到的主密钥（DPAPI 加密存储）"));
+
+    m_hiveStatus = new QLabel(QStringLiteral("未测试"), w);
+    m_hiveStatus->setWordWrap(true);
+    auto* testRow = new QHBoxLayout();
+    testRow->addWidget(m_hiveStatus, 1);
+    auto* testBtn = new QPushButton(QStringLiteral("测试连接"), w);
+    connect(testBtn, &QPushButton::clicked, this, &SettingsDialog::onTestHive);
+    testRow->addWidget(testBtn);
+    auto* testW = new QWidget(w);
+    testW->setLayout(testRow);
+
+    form->addRow(QString(), m_hiveEnabled);
+    form->addRow(QStringLiteral("服务地址"), addrW);
+    form->addRow(QStringLiteral("Agent 名称"), m_hiveName);
+    form->addRow(QStringLiteral("主密钥"), m_hiveKey);
+    form->addRow(QStringLiteral("连接状态"), testW);
+    form->addRow(QString(), new QLabel(
+        QStringLiteral("AgentHive 是本机多 Agent 协作平台（独立开源项目）。\n"
+                       "仅连接本机环回地址，未开启时 Miderforge 不发任何请求。"
+                       "健康检查走 GET /api/health，无鉴权；其余接口使用上方主密钥。"), w));
+    return w;
+}
+
+void SettingsDialog::loadHive() {
+    QFile f(appdirs::file(QString::fromLatin1(kHiveRel)));
+    if (!f.open(QIODevice::ReadOnly))
+        return;
+    const QJsonObject obj = QJsonDocument::fromJson(f.readAll()).object();
+    f.close();
+    m_hiveEnabled->setChecked(obj.value(QStringLiteral("enabled")).toBool(false));
+    if (!obj.value(QStringLiteral("host")).toString().isEmpty())
+        m_hiveHost->setText(obj.value(QStringLiteral("host")).toString());
+    if (!obj.value(QStringLiteral("port")).toString().isEmpty())
+        m_hivePort->setText(obj.value(QStringLiteral("port")).toString());
+    if (!obj.value(QStringLiteral("agentName")).toString().isEmpty())
+        m_hiveName->setText(obj.value(QStringLiteral("agentName")).toString());
+    const QString b64 = obj.value(QStringLiteral("masterKey")).toString();
+    if (!b64.isEmpty()) {
+        m_hiveKeyCipher = b64.toLatin1();
+        m_hiveKey->setPlaceholderText(QStringLiteral("已配置主密钥（输入则覆盖）"));
+    }
+}
+
+void SettingsDialog::saveHive() {
+    QDir().mkpath(appdirs::file(QStringLiteral("config")));
+    QJsonObject obj;
+    obj[QStringLiteral("enabled")] = m_hiveEnabled->isChecked();
+    obj[QStringLiteral("host")] = m_hiveHost->text().trimmed();
+    obj[QStringLiteral("port")] = m_hivePort->text().trimmed();
+    obj[QStringLiteral("agentName")] = m_hiveName->text().trimmed();
+    const QString key = m_hiveKey->text();
+    if (!key.isEmpty()) {
+        const auto enc = dpapi::encryptToBase64(key);
+        if (enc) {
+            m_hiveKeyCipher = enc->toLatin1();
+            obj[QStringLiteral("masterKey")] = *enc;
+        } else {
+            m_hiveStatus->setText(QStringLiteral("主密钥加密失败（DPAPI）"));
+        }
+    } else if (!m_hiveKeyCipher.isEmpty()) {
+        obj[QStringLiteral("masterKey")] = QString::fromLatin1(m_hiveKeyCipher);
+    }
+    // 允许环回外的地址一律拒绝（连接只面向本机服务）
+    if (!isLoopbackHost(m_hiveHost->text().trimmed())) {
+        m_hiveStatus->setText(
+            QStringLiteral("地址 %1 非本机回环，已拒绝：AgentHive 只支持本机连接。").arg(m_hiveHost->text().trimmed()));
+        obj[QStringLiteral("host")] = QStringLiteral("127.0.0.1");
+    }
+    QFile f(appdirs::file(QString::fromLatin1(kHiveRel)));
+    if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        f.write(QJsonDocument(obj).toJson(QJsonDocument::Indented));
+        f.close();
+    }
+}
+
+void SettingsDialog::onTestHive() {
+    const QString host = m_hiveHost->text().trimmed().isEmpty() ? QStringLiteral("127.0.0.1")
+                                                                : m_hiveHost->text().trimmed();
+    const quint16 port = static_cast<quint16>(m_hivePort->text().trimmed().toUShort());
+    if (!isLoopbackHost(host)) {
+        m_hiveStatus->setText(QStringLiteral("已拒绝：仅允许 127.0.0.1 / ::1 / localhost（设计约束：本机服务）"));
+        return;
+    }
+    m_hiveStatus->setText(QStringLiteral("正在连接 %1:%2（/api/health）…").arg(host).arg(port));
+    auto* sock = new QTcpSocket(this);
+    connect(sock, &QTcpSocket::connected, sock, [sock] {
+        sock->write("GET /api/health HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n");
+    });
+    connect(sock, &QTcpSocket::readyRead, sock, [this, sock] {
+        const QByteArray body = sock->readAll();
+        static const QByteArray kMark = "\r\n\r\n";
+        const int sep = body.indexOf(kMark);
+        const QByteArray payload = sep >= 0 ? body.mid(sep + 4) : body;
+        m_hiveStatus->setText(QStringLiteral("✅ AgentHive 响应：%1").arg(QString::fromUtf8(payload).left(180)));
+        sock->disconnectFromHost();
+    });
+    connect(sock, &QTcpSocket::errorOccurred, sock, [this, sock](QAbstractSocket::SocketError) {
+        m_hiveStatus->setText(QStringLiteral("连接失败：%1").arg(sock->errorString()));
+        sock->deleteLater();
+    });
+    connect(sock, &QTcpSocket::disconnected, sock, &QObject::deleteLater);
+    QTimer::singleShot(4000, sock, [sock] {
+        if (sock->state() != QAbstractSocket::UnconnectedState) {
+            sock->abort();
+        }
+    });
+    sock->connectToHost(host, port);
 }
 
 void SettingsDialog::onSave() {
@@ -130,6 +367,9 @@ void SettingsDialog::onSave() {
             m_pm->saveKey(cfg.name, key);
         ++row;
     }
+    // 权限模式（与主窗口同源）
+    if (m_applyPermissionMode)
+        m_applyPermissionMode(m_permCombo->currentIndex());
     // 邮件
     auto cfg = m_mail->config();
     cfg.smtpUrl = m_smtpUrl->text().trimmed();
@@ -145,6 +385,8 @@ void SettingsDialog::onSave() {
     limits.maxTokens = m_maxTokens->value();
     limits.maxSameFailures = m_maxSameFail->value();
     AppContext::instance().l1TokenLimit = m_l1Limit->value();
+    // 蜂巢
+    saveHive();
     accept();
 }
 

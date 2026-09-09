@@ -46,6 +46,7 @@ private:
     void refreshProviderCombo();
     void refreshStatusLabels();
     void refreshL1Footer();
+    void applyPermissionMode(int idx); // 权限模式唯一生效入口（工具栏与设置对话框共用）
     QWidget* makePlaceholder(const QString& text) const;
 
     ProviderManager* m_pm = nullptr;

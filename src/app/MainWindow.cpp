@@ -268,9 +268,7 @@ void MainWindow::buildToolbar() {
     auto* permCombo = new QComboBox(bar);
     permCombo->addItems({QStringLiteral("Suggest"), QStringLiteral("Auto Edit"), QStringLiteral("Full Access")});
     connect(permCombo, &QComboBox::currentIndexChanged, this, [this](int idx) {
-        AppContext::instance().permissionMode = static_cast<PermissionMode>(idx);
-        m_sessionView->setPermissionMode(idx); // 与输入区下拉框双向同步
-        refreshStatusLabels();
+        applyPermissionMode(idx);
     });
     connect(m_sessionView, &SessionView::permissionModeChanged, this, [this, permCombo](int idx) {
         QSignalBlocker blocker(permCombo);
@@ -320,6 +318,12 @@ void MainWindow::refreshProviderCombo() {
         if (idx >= 0)
             m_providerCombo->setCurrentIndex(idx);
     }
+}
+
+void MainWindow::applyPermissionMode(int idx) {
+    AppContext::instance().permissionMode = static_cast<PermissionMode>(idx);
+    m_sessionView->setPermissionMode(idx); // 与输入区下拉框双向同步
+    refreshStatusLabels();
 }
 
 void MainWindow::refreshStatusLabels() {
@@ -372,7 +376,8 @@ void MainWindow::switchNav(int index) {
 }
 
 void MainWindow::openSettings() {
-    SettingsDialog dialog(m_pm, m_mail, this);
+    SettingsDialog dialog(m_pm, m_mail,
+                          [this](int idx) { applyPermissionMode(idx); }, this);
     if (dialog.exec() == QDialog::Accepted) {
         refreshProviderCombo();
         refreshStatusLabels();
