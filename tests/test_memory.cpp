@@ -333,7 +333,7 @@ TEST_CASE("RRF 融合：双通道名次融合，双通道同时命中的 id 居�
     REQUIRE(fused.size() == 4);
     CHECK(fused[0].first == 3); // 1/(60+0)+1/(60+0) 双通道叠加
     CHECK(fused[1].first == 1); // 1/60
-    CHECK(fused[2].first == 2); // 1/61 与 id4 并列，插入序决胜
+    CHECK(fused[2].first == 2); // 1/61 与 id4 同分，id 升序决胜（输出确定可测）
     CHECK(fused[3].first == 4);
 }
 

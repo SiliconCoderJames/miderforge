@@ -224,7 +224,11 @@ QVector<QPair<qint64, double>> MemoryManager::fuseRRF(const QVector<qint64>& a,
         out.append({it.key(), it.value()});
     std::sort(out.begin(), out.end(),
               [](const QPair<qint64, double>& x, const QPair<qint64, double>& y) {
-                  return x.second > y.second;
+                  // 同分按 id 升序决胜：std::sort 不稳定 + QHash 迭代序随机化，
+                  // 不加决胜会导致同分名次跨进程摇摆（纯函数必须输出确定）
+                  if (x.second != y.second)
+                      return x.second > y.second;
+                  return x.first < y.first;
               });
     return out;
 }
