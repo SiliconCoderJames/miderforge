@@ -36,13 +36,13 @@ SkillView::SkillView(SkillManager* skills, QWidget* parent) : QWidget(parent), m
 
     auto* rightLay = new QVBoxLayout();
     m_meta = new QLabel(QStringLiteral("选择左侧技能查看详情"), this);
-    m_meta->setStyleSheet(QStringLiteral("color:%1;font-size:9pt;").arg(theme::colors::textDim.name()));
+    m_meta->setStyleSheet(QStringLiteral("color:%1;font-size:9pt;").arg(theme::colors::textDim().name()));
     m_preview = new QPlainTextEdit(this);
     m_preview->setReadOnly(true);
     m_preview->setFont(theme::monoFont());
     m_preview->setStyleSheet(QStringLiteral(
         "QPlainTextEdit{background-color:%1;color:%2;border:1px solid #3d4045;border-radius:6px;padding:4px;}")
-                               .arg(theme::colors::window.name(), theme::colors::text.name()));
+                               .arg(theme::colors::window().name(), theme::colors::text().name()));
     auto* btnRow = new QHBoxLayout();
     m_editBtn = new QPushButton(QStringLiteral("编辑"), this);
     m_deprecateBtn = new QPushButton(QStringLiteral("标记废弃"), this);

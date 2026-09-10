@@ -15,6 +15,7 @@
 #include "llm/ProviderManager.h"
 #include "notify/EmailNotifier.h"
 #include <QAction>
+#include <QActionGroup>
 #include <QApplication>
 #include <QButtonGroup>
 #include <QHBoxLayout>
@@ -141,10 +142,23 @@ void MainWindow::buildCentral() {
     m_activityBar = new QWidget(central);
     m_activityBar->setFixedWidth(48);
     m_activityBar->setStyleSheet(QStringLiteral("background-color:%1;border-right:1px solid %2;")
-                                     .arg(theme::colors::window.name(), theme::colors::panel.name()));
+                                     .arg(theme::colors::window().name(), theme::colors::panel().name()));
     auto* barLay = new QVBoxLayout(m_activityBar);
     barLay->setContentsMargins(4, 8, 4, 8);
     barLay->setSpacing(4);
+
+    // 品牌区：logo + 渐变签名线（品牌色→强调色，Miderforge 品牌签名）
+    auto* brandLogo = new QLabel(QStringLiteral("🔨"), m_activityBar);
+    brandLogo->setAlignment(Qt::AlignCenter);
+    brandLogo->setToolTip(QStringLiteral("Miderforge · %1").arg(theme::brandTagline()));
+    barLay->addWidget(brandLogo);
+    auto* brandLine = new QFrame(m_activityBar);
+    brandLine->setFixedHeight(2);
+    brandLine->setStyleSheet(QStringLiteral(
+        "background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 %1,stop:1 %2);border-radius:1px;")
+                                 .arg(theme::colors::brand().name(), theme::colors::accent().name()));
+    barLay->addWidget(brandLine);
+    barLay->addSpacing(6);
 
     const QList<QPair<QString, QString>> pages = {
         {QStringLiteral("💬"), QStringLiteral("会话")},
@@ -168,8 +182,8 @@ void MainWindow::buildCentral() {
             "QToolButton{border:none;border-radius:8px;font-size:14pt;color:%1;background:transparent;}"
             "QToolButton:hover{background-color:%2;}"
             "QToolButton:checked{background-color:%3;}")
-                               .arg(theme::colors::textDim.name(), theme::colors::panel.name(),
-                                    theme::colors::accent.name()));
+                               .arg(theme::colors::textDim().name(), theme::colors::panel().name(),
+                                    theme::colors::accent().name()));
         m_pageButtons->addButton(btn, i);
         barLay->addWidget(btn);
         m_pageNames << pages[i].second;
@@ -177,7 +191,28 @@ void MainWindow::buildCentral() {
     connect(m_pageButtons, &QButtonGroup::idClicked, this, [this](int id) { switchNav(id); });
     m_pageButtons->button(0)->setChecked(true);
 
-    // 活动栏底部：L1 记忆占用进度条（数字放悬浮提示）
+    // 活动栏底部：主题皮肤菜单 + L1 记忆占用进度条（数字放悬浮提示）
+    auto* themeBtn = new QToolButton(m_activityBar);
+    themeBtn->setText(QStringLiteral("🎨"));
+    themeBtn->setToolTip(QStringLiteral("主题皮肤（切换后重启应用完全生效）"));
+    themeBtn->setFixedSize(40, 30);
+    auto* themeMenu = new QMenu(themeBtn);
+    auto* themeGroup = new QActionGroup(themeMenu);
+    themeGroup->setExclusive(true);
+    for (int k = 0; k < theme::palettes().size(); ++k) {
+        const auto& pal = theme::palettes()[k];
+        auto* act = themeMenu->addAction(QString::fromUtf8(pal.zh));
+        act->setCheckable(true);
+        act->setChecked(k == theme::paletteIndex());
+        themeGroup->addAction(act);
+        connect(act, &QAction::triggered, this, [k] {
+            theme::setPaletteIndex(k);
+            QMessageBox::information(nullptr, QStringLiteral("Miderforge"),
+                                     QStringLiteral("主题已保存，重启应用后完全生效。"));
+        });
+    }
+    themeBtn->setMenu(themeMenu);
+
     m_l1BarLabel = new QLabel(QStringLiteral("L1 记忆：0 / 4000 tokens"), m_activityBar);
     m_l1BarLabel->setVisible(false); // 仅作 tooltip 数据源
     m_l1Bar = new QProgressBar(m_activityBar);
@@ -189,8 +224,9 @@ void MainWindow::buildCentral() {
     m_l1Bar->setStyleSheet(QStringLiteral(
         "QProgressBar{background-color:%1;border:none;border-radius:3px;}"
         "QProgressBar::chunk{background-color:%2;border-radius:3px;}")
-                               .arg(theme::colors::panel.name(), theme::colors::accent.name()));
+                               .arg(theme::colors::panel().name(), theme::colors::accent().name()));
     barLay->addStretch(1);
+    barLay->addWidget(themeBtn);
     barLay->addWidget(m_l1Bar);
 
     // ---- 中央堆叠区 ----
@@ -211,7 +247,7 @@ void MainWindow::buildCentral() {
 QWidget* MainWindow::makePlaceholder(const QString& text) const {
     auto* label = new QLabel(text, const_cast<MainWindow*>(this));
     label->setAlignment(Qt::AlignCenter);
-    label->setStyleSheet(QStringLiteral("color:%1;font-size:12pt;").arg(theme::colors::textDim.name()));
+    label->setStyleSheet(QStringLiteral("color:%1;font-size:12pt;").arg(theme::colors::textDim().name()));
     return label;
 }
 
@@ -301,6 +337,14 @@ void MainWindow::buildToolbar() {
 }
 
 void MainWindow::buildStatusBar() {
+    // 品牌签名：版本 + 标语（左侧固定）
+    auto* brand = new QLabel(QStringLiteral("Miderforge · %1").arg(theme::brandTagline()), this);
+    brand->setStyleSheet(QStringLiteral("color:%1;font-size:8pt;").arg(theme::colors::brand().name()));
+    statusBar()->addWidget(brand);
+    QLabel* sep = new QLabel(QStringLiteral("│"), this);
+    sep->setStyleSheet(QStringLiteral("color:%1;").arg(theme::colors::line().name()));
+    statusBar()->addWidget(sep);
+
     m_statusModel = new QLabel(this);
     m_statusTokens = new QLabel(this);
     m_statusMode = new QLabel(this);
@@ -310,7 +354,7 @@ void MainWindow::buildStatusBar() {
         statusBar()->addWidget(l);
     }
     statusBar()->setStyleSheet(QStringLiteral("QStatusBar{background-color:%1;color:%2;}")
-                                                      .arg(theme::colors::panel.name(), theme::colors::textDim.name()));
+                                                      .arg(theme::colors::panel().name(), theme::colors::textDim().name()));
     connect(m_sessionView, &SessionView::queueCountChanged, this, [this](int n) {
         m_statusQueue->setText(QStringLiteral("队列: %1").arg(n));
     });
@@ -340,8 +384,8 @@ void MainWindow::applyPermissionMode(int idx) {
 
 void MainWindow::refreshStatusLabels() {
     const ProviderConfig* active = m_pm ? m_pm->activeProvider() : nullptr;
-    const QColor dotColor = !active ? theme::colors::textDim
-                                    : (active->configured ? theme::colors::success : theme::colors::error);
+    const QColor dotColor = !active ? theme::colors::textDim()
+                                    : (active->configured ? theme::colors::success() : theme::colors::error());
     // 决策: M0 状态栏固定展示 main 档模型；M4 三档路由接入后由 Router 维护该标签
     if (active && active->configured) {
         AppContext::instance().activeModelLabel =
@@ -372,10 +416,10 @@ void MainWindow::refreshL1Footer() {
     m_l1Bar->setStyleSheet(used > 4000 * 8 / 10
                                ? QStringLiteral("QProgressBar{background-color:%1;border:none;border-radius:3px;}"
                                                 "QProgressBar::chunk{background-color:%2;border-radius:3px;}")
-                                     .arg(theme::colors::panel.name(), theme::colors::warn.name())
+                                     .arg(theme::colors::panel().name(), theme::colors::warn().name())
                                : QStringLiteral("QProgressBar{background-color:%1;border:none;border-radius:3px;}"
                                                 "QProgressBar::chunk{background-color:%2;border-radius:3px;}")
-                                     .arg(theme::colors::panel.name(), theme::colors::accent.name()));
+                                     .arg(theme::colors::panel().name(), theme::colors::accent().name()));
 }
 
 void MainWindow::switchNav(int index) {

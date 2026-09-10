@@ -101,7 +101,7 @@ TaskQueueView::TaskQueueView(Database* db, AgentLoop* loop, QWidget* parent)
 
     auto* top = new QHBoxLayout();
     auto* title = new QLabel(QStringLiteral("📋 任务队列"), this);
-    title->setStyleSheet(QStringLiteral("font-size:11pt;font-weight:bold;color:%1;").arg(theme::colors::text.name()));
+    title->setStyleSheet(QStringLiteral("font-size:11pt;font-weight:bold;color:%1;").arg(theme::colors::text().name()));
     auto* refreshBtn = new QPushButton(QStringLiteral("刷新"), this);
     refreshBtn->setToolTip(QStringLiteral("重新读取任务表（切换到此页也会自动刷新）"));
     auto* newBtn = new QPushButton(QStringLiteral("＋ 新建任务"), this);
@@ -134,7 +134,7 @@ TaskQueueView::TaskQueueView(Database* db, AgentLoop* loop, QWidget* parent)
     m_detail->setTextInteractionFlags(Qt::TextSelectableByMouse);
     m_detail->setStyleSheet(QStringLiteral(
         "QLabel{background-color:%1;color:%2;border:1px solid #3d4045;border-radius:6px;padding:6px;}")
-                                .arg(theme::colors::window.name(), theme::colors::textDim.name()));
+                                .arg(theme::colors::window().name(), theme::colors::textDim().name()));
     lay->addWidget(m_detail, 1);
     reload();
 }

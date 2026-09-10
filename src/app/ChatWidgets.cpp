@@ -18,7 +18,7 @@ QString inlineMd(QString s) {
     s = escapeHtml(s);
     static const QRegularExpression codeRe(QStringLiteral("`([^`]+)`"));
     s.replace(codeRe, QStringLiteral("<code style=\"background-color:%1;font-family:'Consolas';\">\\1</code>")
-                          .arg(theme::colors::codeBg.name()));
+                          .arg(theme::colors::codeBg().name()));
     static const QRegularExpression boldRe(QStringLiteral(R"(\*\*([^*]+)\*\*)"));
     s.replace(boldRe, QStringLiteral("<b>\\1</b>"));
     static const QRegularExpression italicRe(QStringLiteral(R"((?<!\*)\*([^*\n]+)\*(?!\*))"));
@@ -43,7 +43,7 @@ QString mdToHtml(const QString& md) {
                 "style=\"background-color:%1;margin:4px 0;\"><tr><td>"
                 "<pre style=\"font-family:'Consolas';margin:0;white-space:pre-wrap;\">%2</pre>"
                 "</td></tr></table>")
-                          .arg(theme::colors::codeBg.name(), escapeHtml(code));
+                          .arg(theme::colors::codeBg().name(), escapeHtml(code));
         } else {
             const QStringList lines = block.split(QLatin1Char('\n'));
             QStringList out;
@@ -76,7 +76,7 @@ UserBubble::UserBubble(const QString& text, QWidget* parent) : QWidget(parent) {
     label->setText(inlineMd(text));
     label->setStyleSheet(QStringLiteral(
         "background-color:#324059;border:1px solid %1;border-radius:8px;padding:6px 10px;")
-                             .arg(theme::colors::accent.name()));
+                             .arg(theme::colors::accent().name()));
     label->setMaximumWidth(560);
 
     auto* lay = new QHBoxLayout(this);
@@ -98,7 +98,7 @@ AssistantBlock::AssistantBlock(QWidget* parent) : QWidget(parent) {
     m_thinkingToggle->setVisible(false); // 首个思考增量到达时才显示
     m_thinkingToggle->setStyleSheet(QStringLiteral(
         "QToolButton{color:%1;border:none;text-align:left;}")
-                                        .arg(theme::colors::textDim.name()));
+                                        .arg(theme::colors::textDim().name()));
 
     m_thinkingLabel = new QLabel(this);
     m_thinkingLabel->setTextFormat(Qt::RichText);
@@ -106,14 +106,14 @@ AssistantBlock::AssistantBlock(QWidget* parent) : QWidget(parent) {
     m_thinkingLabel->setVisible(false);
     m_thinkingLabel->setStyleSheet(QStringLiteral(
         "color:%1;font-style:italic;background-color:%2;border-radius:6px;padding:6px;")
-                                        .arg(theme::colors::textDim.name(), theme::colors::panel.name()));
+                                        .arg(theme::colors::textDim().name(), theme::colors::panel().name()));
     connect(m_thinkingToggle, &QToolButton::toggled, m_thinkingLabel, &QWidget::setVisible);
 
     m_contentLabel = new QLabel(this);
     m_contentLabel->setTextFormat(Qt::RichText);
     m_contentLabel->setWordWrap(true);
     m_contentLabel->setTextInteractionFlags(Qt::TextBrowserInteraction);
-    m_contentLabel->setStyleSheet(QStringLiteral("color:%1;").arg(theme::colors::text.name()));
+    m_contentLabel->setStyleSheet(QStringLiteral("color:%1;").arg(theme::colors::text().name()));
 
     lay->addWidget(m_thinkingToggle);
     lay->addWidget(m_thinkingLabel);
@@ -166,7 +166,7 @@ void AssistantBlock::resetStream() {
     m_pendingContent.clear();
     m_thinkingLabel->clear();
     m_contentLabel->setText(QStringLiteral("<i style=\"color:%1\">连接中断，正在自动重试…</i>")
-                                .arg(theme::colors::textDim.name()));
+                                .arg(theme::colors::textDim().name()));
 }
 
 void AssistantBlock::setFinalContent(const QString& text) {
@@ -180,7 +180,7 @@ ToolCallCard::ToolCallCard(const QString& callId, const QString& toolName, QWidg
     setObjectName(QStringLiteral("toolCard"));
     setStyleSheet(QStringLiteral(
         "QWidget#toolCard{background-color:%1;border:1px solid #35383d;border-left:3px solid %2;border-radius:6px;}")
-                      .arg(theme::colors::panel.name(), theme::colors::accent.name()));
+                      .arg(theme::colors::panel().name(), theme::colors::accent().name()));
 
     auto* outer = new QVBoxLayout(this);
     outer->setContentsMargins(8, 4, 8, 4);
@@ -194,11 +194,11 @@ ToolCallCard::ToolCallCard(const QString& callId, const QString& toolName, QWidg
     m_header->setText(QStringLiteral("▶ 🧰 %1").arg(toolName));
     m_header->setStyleSheet(QStringLiteral(
         "QToolButton{color:%1;border:none;font-weight:bold;text-align:left;}")
-                                .arg(theme::colors::text.name()));
+                                .arg(theme::colors::text().name()));
     connect(m_header, &QToolButton::toggled, this, &ToolCallCard::toggleBody);
     m_statusDot = new QLabel(this);
     m_statusDot->setTextFormat(Qt::RichText);
-    m_statusDot->setText(theme::coloredDot(theme::colors::accent)); // 运行中=强调色
+    m_statusDot->setText(theme::coloredDot(theme::colors::accent())); // 运行中=强调色
     headerRow->addWidget(m_header);
     headerRow->addStretch(1);
     headerRow->addWidget(m_statusDot);
@@ -213,7 +213,7 @@ ToolCallCard::ToolCallCard(const QString& callId, const QString& toolName, QWidg
 
     auto makeTitle = [this](const QString& t) {
         auto* l = new QLabel(t, m_body);
-        l->setStyleSheet(QStringLiteral("color:%1;font-size:8pt;").arg(theme::colors::textDim.name()));
+        l->setStyleSheet(QStringLiteral("color:%1;font-size:8pt;").arg(theme::colors::textDim().name()));
         return l;
     };
 
@@ -223,7 +223,7 @@ ToolCallCard::ToolCallCard(const QString& callId, const QString& toolName, QWidg
     m_argsLabel->setTextFormat(Qt::RichText);
     m_argsLabel->setWordWrap(true);
     m_argsLabel->setStyleSheet(QStringLiteral("color:%1;background-color:%2;border-radius:4px;padding:4px;")
-                                                    .arg(theme::colors::text.name(), theme::colors::codeBg.name()));
+                                                    .arg(theme::colors::text().name(), theme::colors::codeBg().name()));
     bodyLay->addWidget(m_argsLabel);
 
     bodyLay->addWidget(makeTitle(QStringLiteral("执行结果")));
@@ -232,7 +232,7 @@ ToolCallCard::ToolCallCard(const QString& callId, const QString& toolName, QWidg
     m_resultLabel->setTextFormat(Qt::RichText);
     m_resultLabel->setWordWrap(true);
     m_resultLabel->setStyleSheet(QStringLiteral("color:%1;background-color:%2;border-radius:4px;padding:4px;")
-                                                      .arg(theme::colors::text.name(), theme::colors::codeBg.name()));
+                                                      .arg(theme::colors::text().name(), theme::colors::codeBg().name()));
     bodyLay->addWidget(m_resultLabel);
 
     m_expandBtn = new QPushButton(QStringLiteral("展开"), m_body);
@@ -246,7 +246,7 @@ ToolCallCard::ToolCallCard(const QString& callId, const QString& toolName, QWidg
     bodyLay->addWidget(m_expandBtn);
 
     m_costLabel = new QLabel(m_body);
-    m_costLabel->setStyleSheet(QStringLiteral("color:%1;font-size:8pt;").arg(theme::colors::textDim.name()));
+    m_costLabel->setStyleSheet(QStringLiteral("color:%1;font-size:8pt;").arg(theme::colors::textDim().name()));
     bodyLay->addWidget(m_costLabel);
 
     // 待确认三按钮（M1 权限门接入后可见）
@@ -259,7 +259,7 @@ ToolCallCard::ToolCallCard(const QString& callId, const QString& toolName, QWidg
     allowOnce->setProperty("decision", 0);
     allowAlways->setProperty("decision", 1);
     deny->setProperty("decision", 2);
-    deny->setStyleSheet(QStringLiteral("QPushButton{color:%1;}").arg(theme::colors::error.name()));
+    deny->setStyleSheet(QStringLiteral("QPushButton{color:%1;}").arg(theme::colors::error().name()));
     for (auto* btn : {allowOnce, allowAlways, deny}) {
         connect(btn, &QPushButton::clicked, this, [this, btn] {
             m_confirmRow->setVisible(false);
@@ -289,19 +289,19 @@ void ToolCallCard::setArgs(const QString& args) {
 }
 
 void ToolCallCard::setRunning() {
-    m_statusDot->setText(theme::coloredDot(theme::colors::accent));
+    m_statusDot->setText(theme::coloredDot(theme::colors::accent()));
 }
 
 void ToolCallCard::setSucceeded() {
-    m_statusDot->setText(theme::coloredDot(theme::colors::success));
+    m_statusDot->setText(theme::coloredDot(theme::colors::success()));
 }
 
 void ToolCallCard::setFailed() {
-    m_statusDot->setText(theme::coloredDot(theme::colors::error));
+    m_statusDot->setText(theme::coloredDot(theme::colors::error()));
 }
 
 void ToolCallCard::setAwaitingConfirm() {
-    m_statusDot->setText(theme::coloredDot(theme::colors::warn));
+    m_statusDot->setText(theme::coloredDot(theme::colors::warn()));
     if (!m_header->isChecked())
         m_header->toggle(); // 展开卡片露出三按钮
     m_confirmRow->setVisible(true);

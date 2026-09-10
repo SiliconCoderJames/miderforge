@@ -24,7 +24,7 @@ FirstRunWizard::FirstRunWizard(ProviderManager* pm, QWidget* parent)
                        "Key 使用 Windows DPAPI 加密后存储在本机配置文件中，不会以明文落盘，也不会上传。"),
         this);
     hint->setWordWrap(true);
-    hint->setStyleSheet(QStringLiteral("color:%1;").arg(theme::colors::textDim.name()));
+    hint->setStyleSheet(QStringLiteral("color:%1;").arg(theme::colors::textDim().name()));
     lay->addWidget(title);
     lay->addWidget(hint);
 
@@ -44,7 +44,7 @@ FirstRunWizard::FirstRunWizard(ProviderManager* pm, QWidget* parent)
         container->setLayout(groupLay);
         container->setStyleSheet(QStringLiteral(
             "QWidget{background-color:%1;border:1px solid #35383d;border-radius:6px;}")
-                                    .arg(theme::colors::panel.name()));
+                                    .arg(theme::colors::panel().name()));
         lay->addWidget(container);
     };
 

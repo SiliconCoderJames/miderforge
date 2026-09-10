@@ -16,12 +16,12 @@ namespace {
 QString typeColor(const QString& type) {
     if (type.startsWith(QStringLiteral("permission_deny")) || type == QLatin1String("error")
         || type == QLatin1String("circuit_break"))
-        return theme::colors::error.name();
+        return theme::colors::error().name();
     if (type.startsWith(QStringLiteral("permission_grant")))
-        return theme::colors::warn.name();
+        return theme::colors::warn().name();
     if (type.startsWith(QStringLiteral("task_status")) || type == QLatin1String("email_sent"))
-        return theme::colors::success.name();
-    return theme::colors::accent.name();
+        return theme::colors::success().name();
+    return theme::colors::accent().name();
 }
 } // namespace
 
@@ -33,7 +33,7 @@ AuditLogView::AuditLogView(EventBus* events, QWidget* parent) : QWidget(parent),
     auto* top = new QHBoxLayout();
     auto* title = new QLabel(QStringLiteral("📜 审计日志（append-only，全量操作留痕）"), this);
     title->setStyleSheet(QStringLiteral("font-size:11pt;font-weight:bold;color:%1;")
-                                            .arg(theme::colors::text.name()));
+                                            .arg(theme::colors::text().name()));
     auto* refresh = new QPushButton(QStringLiteral("刷新"), this);
     refresh->setFlat(true);
     connect(refresh, &QPushButton::clicked, this, &AuditLogView::reload);
@@ -82,7 +82,7 @@ void AuditLogView::appendRow(const EventBus::Event& ev) {
     auto* payload = new QTableWidgetItem(
         QString::fromUtf8(QJsonDocument(ev.payload).toJson(QJsonDocument::Compact)));
     payload->setFont(theme::monoFont());
-    payload->setForeground(QColor(theme::colors::textDim.name()));
+    payload->setForeground(QColor(theme::colors::textDim().name()));
     m_table->setItem(row, 3, payload);
     m_table->scrollToBottom();
 }

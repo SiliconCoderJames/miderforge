@@ -21,7 +21,7 @@ ProviderPanel::ProviderPanel(ProviderManager* pm, QWidget* parent) : QWidget(par
     auto* chainLabel = new QLabel(QStringLiteral("当前故障转移链：%1").arg(chain), this);
     chainLabel->setStyleSheet(QStringLiteral(
         "QLabel{background-color:%1;color:%2;border:1px solid #35383d;border-radius:6px;padding:8px;}")
-                                  .arg(theme::colors::panel.name(), theme::colors::textDim.name()));
+                                  .arg(theme::colors::panel().name(), theme::colors::textDim().name()));
     outer->addWidget(chainLabel);
 
     auto* scroll = new QScrollArea(this);
@@ -70,15 +70,15 @@ QWidget* ProviderPanel::makeCard(const ProviderConfig& cfg) {
 
     // 名称 + 状态灯（绿=健康/红=故障/灰=未配置）
     const ProviderManager::Health h = m_pm->health(cfg.name);
-    QColor dotColor = theme::colors::textDim; // 灰=未配置
+    QColor dotColor = theme::colors::textDim(); // 灰=未配置
     if (!cfg.configured)
-        dotColor = theme::colors::textDim;
+        dotColor = theme::colors::textDim();
     else if (h == ProviderManager::Health::Ok)
-        dotColor = theme::colors::success;
+        dotColor = theme::colors::success();
     else if (h == ProviderManager::Health::Fail)
-        dotColor = theme::colors::error;
+        dotColor = theme::colors::error();
     else if (cfg.name == m_pm->activeProvider()->name)
-        dotColor = theme::colors::success;
+        dotColor = theme::colors::success();
 
     auto* header = new QLabel(
         QStringLiteral("%1 <b>%2</b> %3")
@@ -124,7 +124,7 @@ QWidget* ProviderPanel::makeCard(const ProviderConfig& cfg) {
             else
                 lb->setText(QStringLiteral("✖ 连接失败：%1").arg(err));
             lb->setStyleSheet(QStringLiteral("color:%1;")
-                                  .arg(ok ? theme::colors::success.name() : theme::colors::error.name()));
+                                  .arg(ok ? theme::colors::success().name() : theme::colors::error().name()));
             lb->show();
         }
     });
@@ -136,7 +136,7 @@ QWidget* ProviderPanel::makeCard(const ProviderConfig& cfg) {
     btnRow->addWidget(useBtn);
     if (!cfg.configured) {
         auto* hint = new QLabel(QStringLiteral("（未配置 Key）"), card);
-        hint->setStyleSheet(QStringLiteral("color:%1;font-size:9pt;").arg(theme::colors::warn.name()));
+        hint->setStyleSheet(QStringLiteral("color:%1;font-size:9pt;").arg(theme::colors::warn().name()));
         btnRow->addWidget(hint);
     }
     btnRow->addStretch(1);
@@ -144,7 +144,7 @@ QWidget* ProviderPanel::makeCard(const ProviderConfig& cfg) {
 
     card->setStyleSheet(QStringLiteral(
         "QFrame#providerCard_%1{background-color:%2;border:1px solid #35383d;border-radius:8px;}")
-                            .arg(cfg.name, theme::colors::panel.name()));
+                            .arg(cfg.name, theme::colors::panel().name()));
     return card;
 }
 

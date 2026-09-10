@@ -75,9 +75,9 @@ SettingsDialog::SettingsDialog(ProviderManager* pm, EmailNotifier* mail,
         "QListWidget::item{height:38px;padding-left:14px;border-radius:6px;margin:2px 6px;color:%3;}"
         "QListWidget::item:hover{background-color:%4;}"
         "QListWidget::item:selected{background-color:%5;color:white;font-weight:bold;}")
-                             .arg(theme::colors::window.name(), theme::colors::panel.name(),
-                                  theme::colors::textDim.name(), theme::colors::panel.name(),
-                                  theme::colors::accent.name()));
+                             .arg(theme::colors::window().name(), theme::colors::panel().name(),
+                                  theme::colors::textDim().name(), theme::colors::panel().name(),
+                                  theme::colors::accent().name()));
 
     const QStringList sections = {
         QStringLiteral("通用"),
@@ -146,8 +146,14 @@ QWidget* SettingsDialog::buildGeneralPage() {
     form->addRow(QString(), new QLabel(
         QStringLiteral("与 Codex/同源权限模型对齐；主窗口工具栏可随时切换，两侧始终同一状态。"), w));
 
-    auto* themeLabel = new QLabel(QStringLiteral("深色主题（Fusion + 规格色板），v1 固定。"), w);
-    form->addRow(QStringLiteral("外观"), themeLabel);
+    // 外观：主题皮肤（保存时写入 QSettings，重启完全生效）
+    m_paletteCombo = new QComboBox(w);
+    for (const auto& pal : theme::palettes())
+        m_paletteCombo->addItem(QString::fromUtf8(pal.zh));
+    m_paletteCombo->setCurrentIndex(theme::paletteIndex());
+    form->addRow(QStringLiteral("主题皮肤"), m_paletteCombo);
+    form->addRow(QString(), new QLabel(
+        QStringLiteral("切换主题后重启应用完全生效；活动栏 🎨 菜单可快速切换。"), w));
 
     auto* langLabel = new QLabel(QStringLiteral("简体中文（内置文案），随系统输入法。"), w);
     form->addRow(QStringLiteral("语言"), langLabel);
@@ -201,7 +207,7 @@ QWidget* SettingsDialog::buildProviderPage() {
     embForm->addRow(QStringLiteral("嵌入模型"), m_embModel);
     lay->addLayout(embForm);
     auto* embNote = new QLabel(QStringLiteral("复用所选供应商的接口地址与 API Key；修改后重启应用生效。"), w);
-    embNote->setStyleSheet(QStringLiteral("color:%1;font-size:8pt;").arg(theme::colors::textDim.name()));
+    embNote->setStyleSheet(QStringLiteral("color:%1;font-size:8pt;").arg(theme::colors::textDim().name()));
     lay->addWidget(embNote);
     return w;
 }
@@ -425,6 +431,8 @@ void SettingsDialog::onSave() {
     // 权限模式（与主窗口同源）
     if (m_applyPermissionMode)
         m_applyPermissionMode(m_permCombo->currentIndex());
+    // 主题皮肤
+    theme::setPaletteIndex(m_paletteCombo->currentIndex());
     // 邮件
     auto cfg = m_mail->config();
     cfg.smtpUrl = m_smtpUrl->text().trimmed();

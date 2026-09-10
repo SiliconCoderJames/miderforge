@@ -49,6 +49,7 @@ private:
 
     // 通用
     QComboBox* m_permCombo = nullptr;
+    QComboBox* m_paletteCombo = nullptr; // 主题皮肤（保存后重启生效）
     // 供应商
     QTableWidget* m_providerTable = nullptr;
     QList<QLineEdit*> m_keyEdits; // 与表格行对应

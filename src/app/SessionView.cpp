@@ -33,7 +33,7 @@ SessionView::SessionView(Database* db, AgentLoop* loop, QWidget* parent)
     m_scroll = new QScrollArea(this);
     m_scroll->setWidgetResizable(true);
     m_scroll->setFrameShape(QFrame::NoFrame);
-    m_scroll->setStyleSheet(QStringLiteral("QScrollArea{background:%1;}").arg(theme::colors::window.name()));
+    m_scroll->setStyleSheet(QStringLiteral("QScrollArea{background:%1;}").arg(theme::colors::window().name()));
     m_feedHost = new QWidget(m_scroll);
     m_feedLay = new QVBoxLayout(m_feedHost);
     m_feedLay->setContentsMargins(4, 4, 4, 4);
@@ -83,7 +83,7 @@ SessionView::SessionView(Database* db, AgentLoop* loop, QWidget* parent)
                                     .arg(s % 60, 2, 10, QLatin1Char('0')));
     });
 
-    setStateLabel(QStringLiteral("空闲"), theme::colors::textDim);
+    setStateLabel(QStringLiteral("空闲"), theme::colors::textDim());
 
     loadSessions();
 }
@@ -93,7 +93,7 @@ QWidget* SessionView::buildSessionPanel() {
     panel->setFixedWidth(190);
     panel->setStyleSheet(QStringLiteral(
         "QWidget{background-color:%1;border:1px solid #35383d;border-radius:6px;}")
-                            .arg(theme::colors::panel.name()));
+                            .arg(theme::colors::panel().name()));
     auto* lay = new QVBoxLayout(panel);
     lay->setContentsMargins(6, 6, 6, 6);
     lay->setSpacing(6);
@@ -110,8 +110,8 @@ QWidget* SessionView::buildSessionPanel() {
         "QListWidget::item{height:34px;border-radius:6px;padding-left:6px;color:%2;margin:1px 0;}"
         "QListWidget::item:hover{background-color:%1;}"
         "QListWidget::item:selected{background-color:%3;color:white;}")
-                                     .arg(theme::colors::window.name(), theme::colors::textDim.name(),
-                                          theme::colors::accent.name()));
+                                     .arg(theme::colors::window().name(), theme::colors::textDim().name(),
+                                          theme::colors::accent().name()));
     m_sessionList->setToolTip(QStringLiteral("历史会话（点击恢复消息流）"));
     connect(m_sessionList, &QListWidget::currentItemChanged, this,
             [this](QListWidgetItem* cur, QListWidgetItem*) {
@@ -184,7 +184,7 @@ bool SessionView::switchToSession(qint64 id) {
     m_roundLabel->setText(QStringLiteral("第 0/25 轮"));
     m_tokensLabel->setText(QStringLiteral("tokens: 0"));
     m_elapsedLabel->setText(QStringLiteral("已用时 00:00"));
-    setStateLabel(QStringLiteral("历史会话"), theme::colors::textDim);
+    setStateLabel(QStringLiteral("历史会话"), theme::colors::textDim());
     const auto rows = m_db->query(QStringLiteral(
         "SELECT role, content FROM messages WHERE session_id=? ORDER BY id ASC LIMIT 500"), {id});
     for (const auto& r : rows) {
@@ -232,7 +232,7 @@ QWidget* SessionView::buildStatusStrip() {
     strip->setFixedHeight(36);
     strip->setStyleSheet(QStringLiteral(
         "QFrame{background-color:%1;border:1px solid #35383d;border-radius:6px;}")
-                            .arg(theme::colors::panel.name()));
+                            .arg(theme::colors::panel().name()));
     auto* lay = new QHBoxLayout(strip);
     lay->setContentsMargins(10, 0, 10, 0);
     lay->setSpacing(14);
@@ -242,7 +242,7 @@ QWidget* SessionView::buildStatusStrip() {
     m_elapsedLabel = new QLabel(QStringLiteral("已用时 00:00"), strip);
     m_stateLabel = new QLabel(strip);
     for (auto* l : {m_goalLabel, m_roundLabel, m_tokensLabel, m_elapsedLabel}) {
-        l->setStyleSheet(QStringLiteral("border:none;color:%1;").arg(theme::colors::textDim.name()));
+        l->setStyleSheet(QStringLiteral("border:none;color:%1;").arg(theme::colors::textDim().name()));
         lay->addWidget(l);
     }
     m_goalLabel->setMinimumWidth(220);
@@ -256,7 +256,7 @@ QWidget* SessionView::buildInputArea() {
     auto* frame = new QFrame(this);
     frame->setStyleSheet(QStringLiteral(
         "QFrame{background-color:%1;border:1px solid #35383d;border-radius:6px;}")
-                            .arg(theme::colors::panel.name()));
+                            .arg(theme::colors::panel().name()));
     auto* lay = new QHBoxLayout(frame);
     lay->setContentsMargins(8, 8, 8, 8);
     lay->setSpacing(8);
@@ -266,7 +266,7 @@ QWidget* SessionView::buildInputArea() {
     m_input->setFixedHeight(66); // 3 行高
     m_input->setStyleSheet(QStringLiteral(
         "QPlainTextEdit{background-color:%1;color:%2;border:1px solid #3d4045;border-radius:6px;padding:4px;}")
-                               .arg(theme::colors::window.name(), theme::colors::text.name()));
+                               .arg(theme::colors::window().name(), theme::colors::text().name()));
     m_input->installEventFilter(this);
 
     m_permCombo = new QComboBox(frame);
@@ -292,7 +292,7 @@ QWidget* SessionView::buildInputArea() {
     // M5 P2：挂起/继续状态驱动按钮文案
     connect(m_loop, &AgentLoop::taskPaused, this, [this] {
         m_pauseBtn->setText(QStringLiteral("继续"));
-        setStateLabel(QStringLiteral("已暂停"), theme::colors::warn);
+        setStateLabel(QStringLiteral("已暂停"), theme::colors::warn());
     });
     connect(m_loop, &AgentLoop::taskResumed, this, [this] {
         m_pauseBtn->setText(QStringLiteral("暂停"));
@@ -371,7 +371,7 @@ void SessionView::onSend() {
         m_pendingQueue << text;
         emit queueCountChanged(m_pendingQueue.size());
         auto* note = new QLabel(QStringLiteral("⏳ 任务执行中，新目标已入队"), m_feedHost);
-        note->setStyleSheet(QStringLiteral("color:%1;font-size:8pt;").arg(theme::colors::warn.name()));
+        note->setStyleSheet(QStringLiteral("color:%1;font-size:8pt;").arg(theme::colors::warn().name()));
         appendToFeed(note);
         return;
     }
@@ -392,7 +392,7 @@ void SessionView::startGoal(const QString& goal) {
     m_stopBtn->setEnabled(true);
     m_pauseBtn->setEnabled(true);
     m_pauseBtn->setText(QStringLiteral("暂停"));
-    setStateLabel(QStringLiteral("规划中"), theme::colors::accent);
+    setStateLabel(QStringLiteral("规划中"), theme::colors::accent());
     m_loop->start(goal);
 }
 
@@ -419,15 +419,15 @@ void SessionView::onTaskStarted(const QString& goal) {
 void SessionView::onStateChanged(const QString& stateText) {
     // 状态标签颜色映射（规格 4.3：规划中/执行中/等待确认/已完成/已熔断）
     if (stateText == QStringLiteral("等待确认"))
-        setStateLabel(stateText, theme::colors::warn);
+        setStateLabel(stateText, theme::colors::warn());
     else if (stateText == QStringLiteral("已完成"))
-        setStateLabel(stateText, theme::colors::success);
+        setStateLabel(stateText, theme::colors::success());
     else if (stateText == QStringLiteral("已熔断") || stateText == QStringLiteral("失败"))
-        setStateLabel(stateText, theme::colors::error);
+        setStateLabel(stateText, theme::colors::error());
     else if (stateText == QStringLiteral("空闲"))
-        setStateLabel(stateText, theme::colors::textDim);
+        setStateLabel(stateText, theme::colors::textDim());
     else
-        setStateLabel(stateText, theme::colors::accent);
+        setStateLabel(stateText, theme::colors::accent());
 }
 
 void SessionView::onToolAwaitingConfirm(const QString& callId, const QString& toolName,
@@ -445,16 +445,16 @@ void SessionView::onToolAwaitingConfirm(const QString& callId, const QString& to
     note->setTextFormat(Qt::RichText);
     note->setText(QStringLiteral("<span style='color:%1'>⏸ <b>待确认</b>：%2<br/>目标：<code>%3</code><br/>"
                                  "在上方工具卡片中选择〔允许一次〕〔本会话总是允许〕或〔拒绝〕。</span>")
-                      .arg(theme::colors::warn.name(), riskNote, target.toHtmlEscaped()));
+                      .arg(theme::colors::warn().name(), riskNote, target.toHtmlEscaped()));
     appendToFeed(note);
-    setStateLabel(QStringLiteral("等待确认"), theme::colors::warn);
+    setStateLabel(QStringLiteral("等待确认"), theme::colors::warn());
     scrollToEnd();
 }
 
 void SessionView::onRoundChanged(int round, int maxRounds) {
     m_roundLabel->setText(QStringLiteral("第 %1/%2 轮").arg(round).arg(maxRounds));
     m_roundCards.clear(); // 新一轮的 index 重新从 0 编号
-    setStateLabel(QStringLiteral("执行中"), theme::colors::accent);
+    setStateLabel(QStringLiteral("执行中"), theme::colors::accent());
     if (m_curAssistant) {
         m_curAssistant->finishStream();
         m_curAssistant = nullptr; // 每轮一个新的助手块
@@ -483,7 +483,7 @@ void SessionView::onToolCallStarted(const QString& callId, const QString& name, 
     }
     card->setArgs(args);
     card->setRunning();
-    setStateLabel(QStringLiteral("执行中"), theme::colors::accent);
+    setStateLabel(QStringLiteral("执行中"), theme::colors::accent());
     scrollToEnd();
 }
 
@@ -502,7 +502,7 @@ void SessionView::onStreamRetrying(const QString& reason) {
     if (m_curAssistant)
         m_curAssistant->resetStream();
     auto* note = new QLabel(QStringLiteral("⚠ 流中断（%1），指数退避重试中…").arg(reason), m_feedHost);
-    note->setStyleSheet(QStringLiteral("color:%1;font-size:8pt;").arg(theme::colors::warn.name()));
+    note->setStyleSheet(QStringLiteral("color:%1;font-size:8pt;").arg(theme::colors::warn().name()));
     appendToFeed(note);
 }
 
@@ -523,7 +523,7 @@ void SessionView::onLoopFinished(bool ok, const QString& summary) {
     m_pauseBtn->setEnabled(false);
     m_pauseBtn->setText(QStringLiteral("暂停"));
     setStateLabel(ok ? QStringLiteral("已完成") : QStringLiteral("已熔断"),
-                  ok ? theme::colors::success : theme::colors::error);
+                  ok ? theme::colors::success() : theme::colors::error());
     popQueueIfIdle();
 }
 
@@ -533,9 +533,9 @@ void SessionView::onLoopFailed(const QString& error) {
     m_stopBtn->setEnabled(false);
     m_pauseBtn->setEnabled(false);
     m_pauseBtn->setText(QStringLiteral("暂停"));
-    setStateLabel(QStringLiteral("失败"), theme::colors::error);
+    setStateLabel(QStringLiteral("失败"), theme::colors::error());
     auto* note = new QLabel(QStringLiteral("✖ %1").arg(error), m_feedHost);
-    note->setStyleSheet(QStringLiteral("color:%1;").arg(theme::colors::error.name()));
+    note->setStyleSheet(QStringLiteral("color:%1;").arg(theme::colors::error().name()));
     note->setWordWrap(true);
     appendToFeed(note);
     persistMessage("assistant", QStringLiteral("✖ 失败：%1").arg(error));
@@ -566,7 +566,7 @@ void SessionView::newSession() {
     m_tokensLabel->setText(QStringLiteral("tokens: 0"));
     m_elapsedLabel->setText(QStringLiteral("已用时 00:00"));
     m_elapsedTimer.stop();
-    setStateLabel(QStringLiteral("空闲"), theme::colors::textDim);
+    setStateLabel(QStringLiteral("空闲"), theme::colors::textDim());
     m_input->clear();
     focusInput();
 }
