@@ -26,7 +26,8 @@ MemoryView::MemoryView(MemoryManager* mem, AdjudicationService* adjudicator, QWi
     connect(m_search, &QLineEdit::returnPressed, this, &MemoryView::onSearch);
     m_typeFilter = new QComboBox(this);
     m_typeFilter->addItems({QStringLiteral("全部"), QStringLiteral("用户画像"), QStringLiteral("编码偏好"),
-                            QStringLiteral("任务教训"), QStringLiteral("项目事实"), QStringLiteral("会话摘要")});
+                            QStringLiteral("任务教训"), QStringLiteral("项目事实"), QStringLiteral("会话摘要"),
+                            QStringLiteral("⏳ 待审")});
     connect(m_typeFilter, &QComboBox::currentIndexChanged, this, &MemoryView::onFilterChanged);
     top->addWidget(m_search, 1);
     top->addWidget(m_typeFilter);
@@ -50,15 +51,23 @@ MemoryView::MemoryView(MemoryManager* mem, AdjudicationService* adjudicator, QWi
     auto* btnRow = new QHBoxLayout();
     m_saveBtn = new QPushButton(QStringLiteral("保存修改"), this);
     m_archiveBtn = new QPushButton(QStringLiteral("标记废弃"), this);
+    m_approveBtn = new QPushButton(QStringLiteral("✓ 批准"), this);
+    m_rejectBtn = new QPushButton(QStringLiteral("✕ 拒绝"), this);
+    m_approveBtn->setToolTip(QStringLiteral("批准待审记忆（Hermes write_approval 审批门）"));
+    m_rejectBtn->setToolTip(QStringLiteral("拒绝待审记忆（归档，不生效）"));
     auto* l1Btn = new QPushButton(QStringLiteral("编辑 L1 核心记忆"), this);
     auto* scanBtn = new QPushButton(QStringLiteral("🔍 矛盾扫描"), this);
     scanBtn->setToolTip(QStringLiteral("检测高度相似的可疑记忆对（同主题新旧两种说法），人工裁决归档哪条"));
     connect(scanBtn, &QPushButton::clicked, this, &MemoryView::onScanContradictions);
     connect(m_saveBtn, &QPushButton::clicked, this, &MemoryView::onSaveDetail);
     connect(m_archiveBtn, &QPushButton::clicked, this, &MemoryView::onArchive);
+    connect(m_approveBtn, &QPushButton::clicked, this, &MemoryView::onApprovePending);
+    connect(m_rejectBtn, &QPushButton::clicked, this, &MemoryView::onRejectPending);
     connect(l1Btn, &QPushButton::clicked, this, &MemoryView::onEditL1);
     btnRow->addWidget(m_saveBtn);
     btnRow->addWidget(m_archiveBtn);
+    btnRow->addWidget(m_approveBtn);
+    btnRow->addWidget(m_rejectBtn);
     btnRow->addStretch(1);
     btnRow->addWidget(scanBtn);
     btnRow->addWidget(l1Btn);
@@ -81,18 +90,26 @@ void MemoryView::showEvent(QShowEvent* ev) {
 }
 
 void MemoryView::reload() {
-    const int typeIdx = qBound(0, m_typeFilter->currentIndex(), 5);
+    const int typeIdx = qBound(0, m_typeFilter->currentIndex(), 6);
     const QString typeKey[] = {QString(), QStringLiteral("user_profile"), QStringLiteral("coding_pref"),
                                QStringLiteral("task_lesson"), QStringLiteral("project_facts"),
-                               QStringLiteral("session_summary")};
+                               QStringLiteral("session_summary"), QString()};
     m_records = m_mem->listAll(typeKey[typeIdx]);
+    if (typeIdx == 6) { // ⏳ 待审：审批门暂存条目
+        QVector<MemoryManager::MemoryRecord> pending;
+        for (const auto& r : m_records)
+            if (r.status == QStringLiteral("pending"))
+                pending.push_back(r);
+        m_records = pending;
+    }
     m_list->clear();
     for (const auto& r : m_records) {
         const QString time = QDateTime::fromSecsSinceEpoch(r.updatedAt).toString(QStringLiteral("MM-dd hh:mm"));
         QString stars;
         for (int i = 1; i <= 5; ++i)
             stars += (r.importance >= i * 0.2) ? QStringLiteral("★") : QStringLiteral("☆");
-        m_list->addItem(QStringLiteral("[%1] %2  %3").arg(r.type, time, stars));
+        const QString tag = (r.status == QStringLiteral("pending")) ? QStringLiteral("⏳") : QString();
+        m_list->addItem(QStringLiteral("%1[%2] %3  %4").arg(tag, r.type, time, stars));
     }
     m_l1Label->setText(QStringLiteral("L1 核心记忆占用：%1 / 4000 tokens")
                            .arg(m_mem->l1Tokens()));
@@ -100,6 +117,8 @@ void MemoryView::reload() {
     m_detail->clear();
     m_saveBtn->setEnabled(false); // 未选中记录时操作按钮不可点
     m_archiveBtn->setEnabled(false);
+    m_approveBtn->setEnabled(false);
+    m_rejectBtn->setEnabled(false);
     m_metaLabel->setText(QStringLiteral("共 %1 条记忆").arg(m_records.size()));
 }
 
@@ -134,9 +153,23 @@ void MemoryView::onSelected() {
     m_showingL1 = false;
     m_saveBtn->setEnabled(true);
     m_archiveBtn->setEnabled(true);
-    m_metaLabel->setText(QStringLiteral("id=%1 · 类型=%2 · 重要度=%3 · 访问 %4 次")
-                             .arg(r.id).arg(r.type).arg(r.importance).arg(r.accessCount));
+    const bool pending = (r.status == QStringLiteral("pending"));
+    m_approveBtn->setEnabled(pending);
+    m_rejectBtn->setEnabled(pending);
+    m_metaLabel->setText(QStringLiteral("id=%1 · 类型=%2 · 重要度=%3 · 访问 %4 次%5")
+                             .arg(r.id).arg(r.type).arg(r.importance).arg(r.accessCount)
+                             .arg(pending ? QStringLiteral(" · ⏳ 待审") : QString()));
     m_detail->setPlainText(r.content);
+}
+
+void MemoryView::onApprovePending() {
+    if (m_currentId > 0 && m_mem->approveMemory(m_currentId))
+        reload();
+}
+
+void MemoryView::onRejectPending() {
+    if (m_currentId > 0 && m_mem->rejectMemory(m_currentId))
+        reload();
 }
 
 void MemoryView::onSaveDetail() {

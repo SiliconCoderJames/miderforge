@@ -27,6 +27,7 @@ public:
     Breaker::Limits limits;         // 预算与熔断（设置页可改：轮数 25/token 500K/相同失败 3）
     int l1TokenLimit = 4000;        // L1 记忆上限（设置页可改）
     bool autoAcceptSkills = false;  // 技能自沉淀自动通过（设置页可改）
+    bool memoryWriteApproval = false; // Hermes write_approval：记忆写入暂存待人工批准（设置页可改）
 
 private:
     AppContext() = default;

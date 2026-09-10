@@ -270,6 +270,10 @@ QWidget* SettingsDialog::buildMemoryPage() {
     m_l1Limit->setValue(AppContext::instance().l1TokenLimit);
     form->addRow(QStringLiteral("L1 核心记忆上限（tokens）"), m_l1Limit);
 
+    m_memApproval = new QCheckBox(QStringLiteral("记忆写入需人工批准（暂存为待审，记忆页可批准/拒绝）"), w);
+    m_memApproval->setChecked(AppContext::instance().memoryWriteApproval);
+    form->addRow(QStringLiteral("写入审批门"), m_memApproval);
+
     auto* embLabel = new QLabel(
         QStringLiteral("语义检索（L3 记忆）：FTS5 关键词 + 语义向量双通道融合。\n"
                        "嵌入服务随「供应商」页启用（providers.json 顶层 embedding 节，模型默认 embedding-3）。"), w);
@@ -448,6 +452,7 @@ void SettingsDialog::onSave() {
     limits.maxTokens = m_maxTokens->value();
     limits.maxSameFailures = m_maxSameFail->value();
     AppContext::instance().l1TokenLimit = m_l1Limit->value();
+    AppContext::instance().memoryWriteApproval = m_memApproval->isChecked();
     // 蜂巢
     saveHive();
     accept();

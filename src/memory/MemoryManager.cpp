@@ -78,14 +78,60 @@ bool MemoryManager::l1UserEditedRecently() const {
     return m_lastAgentWrite.secsTo(mtime) != 0 && mtime > m_lastAgentWrite.addSecs(-1);
 }
 
-qint64 MemoryManager::addMemory(const QString& type, const QString& content, double importance) {
+qint64 MemoryManager::addMemory(const QString& type, const QString& content, double importance,
+                                const QString& status) {
     const qint64 now = QDateTime::currentSecsSinceEpoch();
     qint64 id = 0;
     m_db->executeInsert(
         QStringLiteral("INSERT INTO memories(type, content, importance, status, created_at, updated_at) "
-                       "VALUES(?,?,?, 'active', ?, ?)"),
-        {type, content, importance, now, now}, &id);
+                       "VALUES(?,?,?,?,?,?)"),
+        {type, content, importance, status.isEmpty() ? QStringLiteral("active") : status, now, now}, &id);
     return id;
+}
+
+bool MemoryManager::hasMemory(const QString& type, const QString& content) const {
+    // Hermes 查重语义：完全相同的 type+content（active/pending 视为存在）拒绝重复添加
+    const auto rows = m_db->query(QStringLiteral(
+        "SELECT id FROM memories WHERE type=? AND content=? AND status IN ('active','pending') LIMIT 1"),
+        {type, content});
+    return !rows.empty();
+}
+
+bool MemoryManager::approveMemory(qint64 id) {
+    return m_db->execute(QStringLiteral(
+        "UPDATE memories SET status='active', updated_at=? WHERE id=? AND status='pending'"),
+        {QDateTime::currentSecsSinceEpoch(), id});
+}
+
+bool MemoryManager::rejectMemory(qint64 id) {
+    return m_db->execute(QStringLiteral(
+        "UPDATE memories SET status='archived', updated_at=? WHERE id=? AND status='pending'"),
+        {QDateTime::currentSecsSinceEpoch(), id});
+}
+
+QString MemoryManager::renderL1ForPrompt(const QString& l1, long long tokens, long long cap) {
+    // Hermes 同款渲染：用量头部 + 条目以 § 分隔（每个非空行视作一条）
+    if (l1.trimmed().isEmpty())
+        return QStringLiteral("（L1 核心记忆为空）");
+    const int pct = cap > 0 ? int(tokens * 100 / cap) : 0;
+    QString body;
+    const QStringList lines = l1.split(QLatin1Char('\n'));
+    bool first = true;
+    for (const QString& raw : lines) {
+        const QString line = raw.trimmed();
+        if (line.isEmpty())
+            continue;
+        if (!first)
+            body += QStringLiteral("\n§ ");
+        else
+            first = false;
+        body += line;
+    }
+    return QStringLiteral("L1 核心记忆（%1/%2 tokens，占用 %3%）\n§ %4")
+        .arg(tokens)
+        .arg(cap)
+        .arg(pct)
+        .arg(body);
 }
 
 bool MemoryManager::archiveMemory(qint64 id) {

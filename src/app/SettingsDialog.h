@@ -66,6 +66,7 @@ private:
     QSpinBox* m_maxTokens = nullptr;
     QSpinBox* m_maxSameFail = nullptr;
     QSpinBox* m_l1Limit = nullptr;
+    QCheckBox* m_memApproval = nullptr; // Hermes write_approval 记忆写入审批门
     // 蜂巢（AgentHive）
     QCheckBox* m_hiveEnabled = nullptr;
     QLineEdit* m_hiveHost = nullptr;

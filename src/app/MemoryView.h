@@ -34,6 +34,8 @@ private slots:
     void onArchive();
     void onEditL1();
     void onScanContradictions(); // 一致性扫描：相似候选对人工裁决
+    void onApprovePending();     // Hermes write_approval：批准待审记忆
+    void onRejectPending();      // 拒绝待审记忆（归档）
 
 private:
     void showL1Editor(const QString& current, qint64 tokens);
@@ -48,6 +50,8 @@ private:
     QLabel* m_l1Label = nullptr;
     QPushButton* m_saveBtn = nullptr;
     QPushButton* m_archiveBtn = nullptr;
+    QPushButton* m_approveBtn = nullptr; // 待审记忆：批准/拒绝（审批门开启时出现）
+    QPushButton* m_rejectBtn = nullptr;
     QVector<MemoryManager::MemoryRecord> m_records;
     qint64 m_currentId = -1;
     bool m_showingL1 = false;

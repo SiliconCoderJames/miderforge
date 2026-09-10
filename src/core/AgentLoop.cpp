@@ -317,11 +317,13 @@ QString AgentLoop::buildSystemPrompt() {
         "任务完成后直接给出最终答复（不再调用工具）。\n"
         "注意：write_file 必须给出文件完整新内容；工作区外的写入会被拒绝。\n");
 
-    // L1 核心记忆（常驻注入）
+    // L1 核心记忆（常驻注入；Hermes 同款用量头部 + § 分条渲染）
     if (m_deps.mem) {
         const QString l1 = m_deps.mem->loadL1();
         if (!l1.isEmpty())
-            prompt += QStringLiteral("\n===== L1 核心记忆 =====\n%1\n").arg(l1);
+            prompt += QStringLiteral("\n===== %1 =====\n")
+                          .arg(m_deps.mem->renderL1ForPrompt(l1, m_deps.mem->l1Tokens(),
+                                                             AppContext::instance().l1TokenLimit));
 
         // 相关记忆：L3 检索 Top5。查询随轮次演化（RAG 的"动态相关"才有意义）：
         // 首轮用任务原文；之后混入模型最近的反思/计划文本，避免 25 轮注入同一批常量记忆

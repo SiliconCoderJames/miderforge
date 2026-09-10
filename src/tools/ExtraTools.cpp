@@ -1,9 +1,12 @@
 // 网络与技能工具实现
 #include "tools/ExtraTools.h"
 #include "core/AppContext.h"
+#include "db/Database.h"
+#include "memory/MemoryManager.h"
 #include "tools/ToolRegistry.h"
 #include "util/AppDirs.h"
 #include "util/NetGuard.h"
+#include <QDateTime>
 #include <QDir>
 #include <QEventLoop>
 #include <QFile>
@@ -13,6 +16,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QRegularExpression>
 #include <QTimer>
 #include <QUrl>
 #include <curl/curl.h>
@@ -37,6 +41,26 @@ size_t writeToString(char* ptr, size_t size, size_t nmemb, void* userdata) {
 int fetchProgressAbort(void* userdata, curl_off_t, curl_off_t, curl_off_t, curl_off_t) {
     auto* reg = static_cast<const ToolRegistry*>(userdata);
     return reg->toolCancelRequested() ? 1 : 0;
+}
+
+// Hermes save/skip 策展门（纯逻辑、可单测）：待办清单/原始转储形态的内容不配进长期记忆。
+// 特征：≥3 行都以任务清单记号开头（-、*、•、数字.、□/[ ]）→ 视为待办转储
+bool contentIsTaskChecklist(const QString& content) {
+    const QStringList lines = content.split(QLatin1Char('\n'));
+    int markerLines = 0;
+    static const QRegularExpression marker(
+        QStringLiteral("^\\s*(-|\\*|•|\\u25a1|\\[[ xX]\\]|\\d+[.、)])\\s+\\S"));
+    for (const QString& raw : lines) {
+        if (raw.trimmed().isEmpty())
+            continue;
+        if (marker.match(raw).hasMatch())
+            ++markerLines;
+    }
+    int nonEmpty = 0;
+    for (const QString& raw : lines)
+        if (!raw.trimmed().isEmpty())
+            ++nonEmpty;
+    return nonEmpty >= 3 && markerLines >= 3;
 }
 
 } // namespace
@@ -99,6 +123,10 @@ bool checkFetchUrl(const QString& url, QString* pinnedIp, QString* err) {
 }
 
 void ExtraTools::registerAll(ToolRegistry& reg) {
+    registerAll(reg, nullptr, nullptr);
+}
+
+void ExtraTools::registerAll(ToolRegistry& reg, Database* db, MemoryManager* mem) {
     // ---------- http_fetch（需确认 / Full Access 白名单自动；判定在权限门） ----------
     ToolDef http;
     http.name = QStringLiteral("http_fetch");
@@ -255,6 +283,205 @@ void ExtraTools::registerAll(ToolRegistry& reg) {
         });
     };
     reg.add(std::move(skill));
+
+    // ---------- memory_write（Hermes 式三动作：add/replace/remove） ----------
+    if (mem) {
+        ToolDef mw;
+        mw.name = QStringLiteral("memory_write");
+        mw.description = QStringLiteral(
+            "写入/修订长期记忆（跨会话生效）。【该记】用户偏好与纠正、环境信息、项目约定、"
+            "踩坑教训、完成的重要工作；【不该记】琐碎细节、可随时重新发现的信息、原始转储、"
+            "会话临时内容。add 自动查重，完全相同的条目会被拒绝。");
+        mw.parameters = QJsonObject{
+            {"type", "object"},
+            {"properties", QJsonObject{
+                               {"action", QJsonObject{
+                                              {"type", "string"},
+                                              {"enum", QJsonArray{"add", "replace", "remove"}},
+                                              {"description", "add=新增条目 replace=改写条目内容 remove=废弃条目"},
+                                          }},
+                               {"type", QJsonObject{
+                                            {"type", "string"},
+                                            {"enum", QJsonArray{"user_profile", "coding_pref", "task_lesson",
+                                                                "project_facts", "session_summary"}},
+                                            {"description", "记忆类型（仅 add 需要）"},
+                                        }},
+                               {"content", QJsonObject{
+                                               {"type", "string"},
+                                               {"description", "条目内容（add/replace 需要，≤500 字，一事一条）"},
+                                           }},
+                               {"importance", QJsonObject{
+                                                  {"type", "number"},
+                                                  {"description", "重要度 0~1（仅 add，默认 0.5）"},
+                                              }},
+                               {"id", QJsonObject{
+                                          {"type", "integer"},
+                                          {"description", "条目编号（replace/remove 需要）"},
+                                      }},
+                           }},
+            {"required", QJsonArray{"action"}},
+        };
+    mw.handler = [mem](const QJsonObject& args, QString* err) -> QString {
+        const QString action = args.value("action").toString().trimmed();
+        if (action == QLatin1String("add")) {
+            // Hermes save/skip 策展门：待办清单式内容、原始转储不配进记忆
+            if (contentIsTaskChecklist(args.value("content").toString())) {
+                if (err) *err = QStringLiteral("待办/清单类内容不应写入长期记忆（请走任务系统）");
+                return {};
+            }
+            const QString type = args.value("type").toString().trimmed();
+                const QString content = args.value("content").toString().trimmed();
+                double importance = args.value("importance").toDouble(0.5);
+                importance = qBound(0.0, importance, 1.0);
+                if (type.isEmpty() || content.isEmpty()) {
+                    if (err) *err = QStringLiteral("add 需要 type 与 content");
+                    return {};
+                }
+                if (content.size() > 500) {
+                    if (err) *err = QStringLiteral("条目过长（%1 字，上限 500）——请提炼为一事一条").arg(content.size());
+                    return {};
+                }
+                QString reason;
+                if (!isSafeMemoryContent(content, &reason)) {
+                    if (err) *err = QStringLiteral("内容未通过安全扫描：%1").arg(reason);
+                    return {};
+                }
+                if (mem->hasMemory(type, content)) {
+                    return envelope(QJsonObject{{"ok", false},
+                                                {"reason", QStringLiteral("已存在完全相同的条目，未重复添加")}});
+                }
+                const bool approval = AppContext::instance().memoryWriteApproval;
+                const qint64 id = mem->addMemory(type, content, importance,
+                                                 approval ? QStringLiteral("pending") : QStringLiteral("active"));
+                if (id <= 0) {
+                    if (err) *err = QStringLiteral("写入失败");
+                    return {};
+                }
+                return envelope(QJsonObject{
+                    {"ok", true},
+                    {"id", id},
+                    {"status", approval ? QStringLiteral("pending") : QStringLiteral("active")},
+                    {"note", approval ? QStringLiteral("已暂存，等待人工批准后生效")
+                                      : QStringLiteral("已写入长期记忆")},
+                });
+            }
+            if (action == QLatin1String("replace")) {
+                const qint64 id = args.value("id").toInteger();
+                const QString content = args.value("content").toString().trimmed();
+                if (id <= 0 || content.isEmpty()) {
+                    if (err) *err = QStringLiteral("replace 需要 id 与 content");
+                    return {};
+                }
+                if (content.size() > 500) {
+                    if (err) *err = QStringLiteral("条目过长（%1 字，上限 500）").arg(content.size());
+                    return {};
+                }
+                QString reason;
+                if (!isSafeMemoryContent(content, &reason)) {
+                    if (err) *err = QStringLiteral("内容未通过安全扫描：%1").arg(reason);
+                    return {};
+                }
+                if (!mem->updateContent(id, content)) {
+                    if (err) *err = QStringLiteral("条目不存在或改写失败");
+                    return {};
+                }
+                return envelope(QJsonObject{{"ok", true}, {"id", id}, {"note", QStringLiteral("已改写")}});
+            }
+            if (action == QLatin1String("remove")) {
+                const qint64 id = args.value("id").toInteger();
+                if (id <= 0) {
+                    if (err) *err = QStringLiteral("remove 需要 id");
+                    return {};
+                }
+                if (!mem->archiveMemory(id)) {
+                    if (err) *err = QStringLiteral("条目不存在或废弃失败");
+                    return {};
+                }
+                return envelope(QJsonObject{{"ok", true}, {"id", id}, {"note", QStringLiteral("已废弃（标记，不物理删除）")}});
+            }
+            if (err) *err = QStringLiteral("未知 action：%1").arg(action);
+            return {};
+        };
+        reg.add(std::move(mw));
+    }
+
+    // ---------- session_search（messages 表 FTS5 全文检索，Hermes session_search 同款思路） ----------
+    if (db) {
+        ToolDef ss;
+        ss.name = QStringLiteral("session_search");
+        ss.description = QStringLiteral(
+            "全文检索历史会话消息（含自己的目标与助手摘要）。当需要回忆「之前做过什么/讨论过什么」时使用，"
+            "记忆条目之外的细节都在这里。");
+        ss.parameters = QJsonObject{
+            {"type", "object"},
+            {"properties", QJsonObject{
+                               {"query", QJsonObject{
+                                             {"type", "string"},
+                                             {"description", "关键词（≥2 字符，支持中文）"},
+                                         }},
+                           }},
+            {"required", QJsonArray{"query"}},
+        };
+        ss.handler = [db](const QJsonObject& args, QString* err) -> QString {
+            const QString query = args.value("query").toString().trimmed();
+            if (query.size() < 2) {
+                if (err) *err = QStringLiteral("查询词至少 2 个字符");
+                return {};
+            }
+            const auto rows = db->query(QStringLiteral(
+                "SELECT m.session_id, m.role, m.ts, snippet(messages_fts, 2, '[', ']', '…', 24) AS snip "
+                "FROM messages_fts f JOIN messages m ON m.id = f.rowid "
+                "WHERE messages_fts MATCH ? ORDER BY rank LIMIT 8"), {query});
+            QJsonArray hits;
+            for (const auto& r : rows) {
+                hits.append(QJsonObject{
+                    {"session_id", r.value("session_id").toLongLong()},
+                    {"role", r.value("role").toString()},
+                    {"time", QDateTime::fromSecsSinceEpoch(r.value("ts").toLongLong())
+                                 .toString(QStringLiteral("MM-dd hh:mm"))},
+                    {"snippet", r.value("snip").toString()},
+                });
+            }
+            return envelope(QJsonObject{{"ok", true}, {"query", query}, {"hits", hits},
+                                        {"note", hits.isEmpty() ? QStringLiteral("无匹配") : QStringLiteral("按相关度排序")}});
+        };
+        reg.add(std::move(ss));
+    }
+}
+
+bool isSafeMemoryContent(const QString& content, QString* reason) {
+    // 1) 不可见 Unicode（Hermes 同款拦截）：零宽字符/方向控制/软连字符/BOM/变体选择符
+    //    逐字符判定（确定性，不依赖正则的 Unicode 转义支持）
+    for (const QChar ch : content) {
+        const char16_t u = ch.unicode();
+        const bool invisible = (u >= 0x200B && u <= 0x200F) || (u >= 0x2060 && u <= 0x2064)
+                               || u == 0xFEFF || u == 0x00AD;
+        if (invisible) {
+            if (reason) *reason = QStringLiteral("包含不可见 Unicode 字符 U+%1（常见于隐蔽注入）").arg(u, 4, 16, QLatin1Char('0'));
+            return false;
+        }
+    }
+    // 2) 典型提示词注入/外传指令串（中英双语文本规则，纯词面匹配）
+    static const QVector<QRegularExpression> injections = {
+        QRegularExpression(QStringLiteral("ignore\\s+(all\\s+)?(previous|prior|above)\\s+instructions"),
+                           QRegularExpression::CaseInsensitiveOption),
+        QRegularExpression(QStringLiteral("disregard\\s+(all\\s+)?(previous|prior|above)"),
+                           QRegularExpression::CaseInsensitiveOption),
+        QRegularExpression(QStringLiteral("reveal\\s+(your\\s+)?(system\\s+)?prompt"),
+                           QRegularExpression::CaseInsensitiveOption),
+        QRegularExpression(QStringLiteral("忽略(之前|上面|以上|先前)的?(所有)?(指令|设定|提示)")),
+        QRegularExpression(QStringLiteral("无视(上面|以上|上述|之前)的?(所有)?(指令|设定|提示)")),
+        QRegularExpression(QStringLiteral("(泄露|透露|输出).{0,6}(系统提示|system\\s*prompt)"),
+                           QRegularExpression::CaseInsensitiveOption),
+    };
+    for (const auto& re : injections) {
+        const auto m = re.match(content);
+        if (m.hasMatch()) {
+            if (reason) *reason = QStringLiteral("命中疑似提示词注入：「%1」").arg(m.captured(0));
+            return false;
+        }
+    }
+    return true;
 }
 
 } // namespace miderforge::ExtraTools

@@ -93,12 +93,7 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    // 工具注册表（v1 全集 7 工具）+ 事件审计 + Agent 循环
-    ToolRegistry tools;
-    FileTools::registerAll(tools);
-    CommandTools::registerAll(tools);
-    ExtraTools::registerAll(tools);
-
+    // 事件审计 + 数据库（memory_write / session_search 工具依赖 db 与记忆管理器，延后注册）
     EventBus events(appdirs::file(QStringLiteral("logs/events.jsonl")));
     Database db;
     if (!db.open(appdirs::file(QStringLiteral("miderforge.db")))) {
@@ -111,6 +106,12 @@ int main(int argc, char* argv[]) {
     MemoryManager memory(&db, appdirs::file(QStringLiteral("memory/core.md")));
     if (memory.loadL1().isEmpty())
         memory.saveL1(QStringLiteral("# 用户画像\n\n# 编码偏好\n\n# 禁区\n\n# 活跃项目状态\n"));
+
+    // 工具注册表：基础三族 + Hermes 记忆三动作/会话检索（依赖 db/memory）
+    ToolRegistry tools;
+    FileTools::registerAll(tools);
+    CommandTools::registerAll(tools);
+    ExtraTools::registerAll(tools, &db, &memory);
     // M6-A 语义检索：嵌入器复用 embedding.provider 指向供应商的 base_url 与 API Key（不引入第二套密钥）。
     // 未启用/该供应商未配 Key 时不注入，检索自动走纯 FTS5 降级
     std::unique_ptr<EmbeddingClient> embedder;

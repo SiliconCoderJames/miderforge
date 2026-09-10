@@ -37,7 +37,16 @@ public:
     bool l1UserEditedRecently() const;
 
     // ---- L3 档案库 ----
-    qint64 addMemory(const QString& type, const QString& content, double importance);
+    // status：'active'（默认）/ 'pending'（Hermes write_approval 审批门：待人工批准）
+    qint64 addMemory(const QString& type, const QString& content, double importance,
+                     const QString& status = QStringLiteral("active"));
+    // Hermes 查重：完全相同的 type+content（active/pending）视为已存在
+    bool hasMemory(const QString& type, const QString& content) const;
+    // 审批门（write_approval）：pending → active（批准）/ archived（拒绝）
+    bool approveMemory(qint64 id);
+    bool rejectMemory(qint64 id);
+    // Hermes 同款 L1 提示词渲染：用量头部 + 条目 § 分隔（纯函数，可单测）
+    static QString renderL1ForPrompt(const QString& l1, long long tokens, long long cap);
     bool archiveMemory(qint64 id);                 // 废弃=标记，不物理删（规格 5）
     bool updateContent(qint64 id, const QString& content);
     QVector<MemoryRecord> listAll(const QString& typeFilter = QString()) const;
