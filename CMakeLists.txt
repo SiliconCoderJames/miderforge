@@ -129,8 +129,11 @@ add_executable(mider_tests
     tests/test_jsonextract.cpp
     tests/test_adjudication.cpp
     tests/test_embedding.cpp
+    tests/test_theme.cpp
 )
 target_link_libraries(mider_tests PRIVATE mider_core Qt6::Network doctest::doctest)
+# 主题测试需要 mider_ui（app/Theme）；QSS 生成是纯字符串构建，无需 QApplication 实例
+target_link_libraries(mider_tests PRIVATE mider_ui)
 if(MSVC)
     # 崩溃栈回溯（tests/test_main.cpp 的 dbghelp 符号解析）
     target_link_libraries(mider_tests PRIVATE dbghelp)

@@ -140,6 +140,8 @@ TEST_CASE("MemoryManager::renderL1ForPrompt：用量头部 + § 分条；空记�
               .contains(QStringLiteral("为空")));
 }
 
+// ---- 品牌主题测试见 tests/test_theme.cpp（依赖 mider_ui 的 app/Theme） ----
+
 // ---- 行级 diff（Codex 式变更审查） ----
 TEST_CASE("DiffUtil::unified：统计/ unified 文本/相同与 CRLF 归一/截断") {
     // 单行替换
