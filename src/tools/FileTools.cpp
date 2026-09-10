@@ -2,6 +2,7 @@
 #include "tools/FileTools.h"
 #include "core/AppContext.h"
 #include "tools/ToolRegistry.h"
+#include "util/DiffUtil.h"
 #include <QDir>
 #include <QDirIterator>
 #include <QFile>
@@ -118,6 +119,29 @@ static void registerWriteFile(ToolRegistry& reg) {
             if (err) *err = QStringLiteral("目标是已存在的目录：%1").arg(path);
             return {};
         }
+        // 覆盖已有文件时先取旧内容做行级 diff（Codex 式线程内变更审查）
+        QJsonObject diffObj;
+        QString message = QStringLiteral("写入成功");
+        if (info.exists()) {
+            QFile oldF(path);
+            if (oldF.open(QIODevice::ReadOnly) && oldF.size() <= kMaxWriteBytes) {
+                const QString oldText = QString::fromUtf8(oldF.readAll());
+                oldF.close();
+                const auto d = DiffUtil::unified(oldText, content);
+                if (d.added || d.removed) {
+                    message = QStringLiteral("写入成功（+%1/−%2 行）").arg(d.added).arg(d.removed);
+                    diffObj = QJsonObject{
+                        {"added", d.added},
+                        {"removed", d.removed},
+                        {"diff", d.unified},
+                        {"truncated", d.truncated},
+                    };
+                }
+            }
+        } else {
+            message = QStringLiteral("写入成功（新文件，%1 行）").arg(
+                content.isEmpty() ? 0 : content.count(QLatin1Char('\n')) + 1);
+        }
         QDir().mkpath(info.absolutePath()); // 决策: 自动创建父目录
         QFile f(path);
         if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
@@ -127,12 +151,15 @@ static void registerWriteFile(ToolRegistry& reg) {
         const QByteArray bytes8 = content.toUtf8();
         f.write(bytes8);
         f.close();
-        return envelope(QJsonObject{
+        QJsonObject result{
             {"ok", true},
             {"path", path},
             {"bytes", int(bytes8.size())},
-            {"message", QStringLiteral("写入成功")},
-        });
+            {"message", message},
+        };
+        if (!diffObj.isEmpty())
+            result["diff"] = std::move(diffObj);
+        return envelope(result);
     };
     reg.add(std::move(def));
 }

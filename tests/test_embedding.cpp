@@ -3,6 +3,7 @@
 #include "llm/EmbeddingClient.h"
 #include "memory/MemoryManager.h"
 #include "tools/ExtraTools.h"
+#include "util/DiffUtil.h"
 #include "util/NetGuard.h"
 #include <QHostAddress>
 #include <doctest/doctest.h>
@@ -137,4 +138,34 @@ TEST_CASE("MemoryManager::renderL1ForPrompt：用量头部 + § 分条；空记�
     // 空 L1
     CHECK(MemoryManager::renderL1ForPrompt(QStringLiteral("  \n "), 0, 4000)
               .contains(QStringLiteral("为空")));
+}
+
+// ---- 行级 diff（Codex 式变更审查） ----
+TEST_CASE("DiffUtil::unified：统计/ unified 文本/相同与 CRLF 归一/截断") {
+    // 单行替换
+    const auto d1 = miderforge::DiffUtil::unified(QStringLiteral("a\nb\nc"), QStringLiteral("a\nx\nc"));
+    CHECK(d1.added == 1);
+    CHECK(d1.removed == 1);
+    CHECK(d1.unified.contains(QStringLiteral("-b")));
+    CHECK(d1.unified.contains(QStringLiteral("+x")));
+    CHECK(d1.unified.contains(QStringLiteral("@@")));
+    CHECK_FALSE(d1.truncated);
+    // 完全相同
+    const auto d2 = miderforge::DiffUtil::unified(QStringLiteral("a\nb"), QStringLiteral("a\nb"));
+    CHECK(d2.added == 0);
+    CHECK(d2.removed == 0);
+    CHECK(d2.unified.isEmpty());
+    // 新文件（旧文本为空）
+    const auto d3 = miderforge::DiffUtil::unified(QStringLiteral(""), QStringLiteral("l1\nl2\nl3"));
+    CHECK(d3.added == 3);
+    CHECK(d3.removed == 0);
+    // CRLF 归一
+    const auto d4 = miderforge::DiffUtil::unified(QStringLiteral("a\r\nb"), QStringLiteral("a\nb"));
+    CHECK(d4.added == 0);
+    CHECK(d4.removed == 0);
+    // 截断：上限 2 行正文
+    const auto d5 = miderforge::DiffUtil::unified(QStringLiteral("1\n2\n3"), QStringLiteral("4\n5\n6"), 1, 2);
+    CHECK(d5.truncated);
+    CHECK(d5.added == 3);
+    CHECK(d5.removed == 3);
 }

@@ -6,6 +6,11 @@
 #include <QBoxLayout>
 #include <QComboBox>
 #include <QDateTime>
+#include <QDialog>
+#include <QFileDialog>
+#include <QFileInfo>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QMessageBox>
 #include <QPushButton>
 #include <QScrollBar>
@@ -22,9 +27,15 @@ SessionView::SessionView(Database* db, AgentLoop* loop, QWidget* parent)
     outer->addWidget(buildSessionPanel());
 
     auto* content = new QWidget(this);
-    auto* rootLay = new QVBoxLayout(content);
+    auto* contentLay = new QHBoxLayout(content);
+    contentLay->setContentsMargins(0, 0, 0, 0);
+    contentLay->setSpacing(8);
+    auto* mainCol = new QWidget(content);
+    auto* rootLay = new QVBoxLayout(mainCol);
     rootLay->setContentsMargins(0, 0, 0, 0);
     rootLay->setSpacing(6);
+    contentLay->addWidget(mainCol, 1);
+    contentLay->addWidget(buildChangesPanel());
     outer->addWidget(content, 1);
 
     rootLay->addWidget(buildStatusStrip());
@@ -86,6 +97,75 @@ SessionView::SessionView(Database* db, AgentLoop* loop, QWidget* parent)
     setStateLabel(QStringLiteral("空闲"), theme::colors::textDim());
 
     loadSessions();
+}
+
+QWidget* SessionView::buildChangesPanel() {
+    auto* panel = new QWidget(this);
+    panel->setFixedWidth(180);
+    panel->setStyleSheet(QStringLiteral(
+        "QWidget{background-color:%1;border:1px solid #35383d;border-radius:6px;}")
+                            .arg(theme::colors::panel().name()));
+    auto* lay = new QVBoxLayout(panel);
+    lay->setContentsMargins(6, 6, 6, 6);
+    lay->setSpacing(6);
+    m_changesTitle = new QLabel(QStringLiteral("🔧 变更文件（0）"), panel);
+    m_changesTitle->setStyleSheet(QStringLiteral("border:none;font-weight:bold;color:%1;font-size:9pt;")
+                                      .arg(theme::colors::textDim().name()));
+    lay->addWidget(m_changesTitle);
+    m_changesList = new QListWidget(panel);
+    m_changesList->setStyleSheet(QStringLiteral(
+        "QListWidget{background:transparent;border:none;font-size:9pt;outline:none;}"
+        "QListWidget::item{height:30px;border-radius:6px;padding-left:4px;color:%2;margin:1px 0;}"
+        "QListWidget::item:hover{background-color:%1;}")
+                                     .arg(theme::colors::window().name(), theme::colors::textDim().name()));
+    m_changesList->setToolTip(QStringLiteral("本次任务的文件变更（点击查看 diff）"));
+    connect(m_changesList, &QListWidget::itemClicked, this, &SessionView::onChangedFileClicked);
+    lay->addWidget(m_changesList, 1);
+    return panel;
+}
+
+void SessionView::onChangedFileClicked(QListWidgetItem* item) {
+    const QString path = item->data(Qt::UserRole).toString();
+    const auto it = m_changes.constFind(path);
+    if (it == m_changes.constEnd())
+        return;
+    QDialog dlg(this);
+    dlg.setWindowTitle(QStringLiteral("变更审查 · %1（+%2/−%3）").arg(path).arg(it->added).arg(it->removed));
+    dlg.resize(860, 620);
+    auto* lay = new QVBoxLayout(&dlg);
+    auto* view = new QPlainTextEdit(&dlg);
+    view->setReadOnly(true);
+    view->setFont(theme::monoFont());
+    view->setPlainText(it->diff);
+    lay->addWidget(view);
+    dlg.exec();
+}
+
+void SessionView::onPickAttachment() {
+    const QStringList files = QFileDialog::getOpenFileNames(
+        this, QStringLiteral("选择上下文文件（路径将随目标一并发给 Agent）"),
+        AppContext::instance().workspaceRoot);
+    for (const QString& f : files) {
+        if (!m_attachedFiles.contains(f)) {
+            m_attachedFiles.append(f);
+            auto* chip = new QPushButton(QStringLiteral("✕ ") + QFileInfo(f).fileName(), m_chipsHost);
+            chip->setFlat(true);
+            chip->setToolTip(f);
+            chip->setStyleSheet(QStringLiteral(
+                "QPushButton{background-color:%1;border:1px solid %2;border-radius:10px;"
+                "padding:2px 10px;font-size:8pt;color:%3;}")
+                                    .arg(theme::colors::codeBg().name(), theme::colors::line().name(),
+                                         theme::colors::textDim().name()));
+            const QString path = f;
+            connect(chip, &QPushButton::clicked, this, [this, path, chip] {
+                m_attachedFiles.removeAll(path);
+                chip->deleteLater();
+                m_chipsHost->setVisible(!m_attachedFiles.isEmpty());
+            });
+            m_chipsLay->addWidget(chip);
+        }
+    }
+    m_chipsHost->setVisible(!m_attachedFiles.isEmpty());
 }
 
 QWidget* SessionView::buildSessionPanel() {
@@ -212,6 +292,11 @@ void SessionView::clearFeed() {
         delete item;
     }
     m_curAssistant = nullptr;
+    // 变更文件右栏随消息流清空（新任务/切换会话都是新的变更集合）
+    m_changes.clear();
+    m_callPaths.clear();
+    m_changesList->clear();
+    m_changesTitle->setText(QStringLiteral("🔧 变更文件（0）"));
 }
 
 void SessionView::onSessionSelected() {
@@ -257,9 +342,23 @@ QWidget* SessionView::buildInputArea() {
     frame->setStyleSheet(QStringLiteral(
         "QFrame{background-color:%1;border:1px solid #35383d;border-radius:6px;}")
                             .arg(theme::colors::panel().name()));
-    auto* lay = new QHBoxLayout(frame);
-    lay->setContentsMargins(8, 8, 8, 8);
+    auto* frameLay = new QVBoxLayout(frame);
+    frameLay->setContentsMargins(8, 8, 8, 8);
+    frameLay->setSpacing(6);
+
+    // 附件上下文 chips 行（无附件时隐藏）
+    m_chipsHost = new QWidget(frame);
+    m_chipsLay = new QHBoxLayout(m_chipsHost);
+    m_chipsLay->setContentsMargins(0, 0, 0, 0);
+    m_chipsLay->setSpacing(6);
+    m_chipsLay->addStretch(1);
+    m_chipsHost->setVisible(false);
+    frameLay->addWidget(m_chipsHost);
+
+    auto* lay = new QHBoxLayout();
+    lay->setContentsMargins(0, 0, 0, 0);
     lay->setSpacing(8);
+    frameLay->addLayout(lay);
 
     m_input = new QPlainTextEdit(frame);
     m_input->setPlaceholderText(QStringLiteral("输入任务目标，Enter 发送、Shift+Enter 换行（任务执行中发送将自动入队）"));
@@ -302,7 +401,15 @@ QWidget* SessionView::buildInputArea() {
     auto* rightLay = new QVBoxLayout();
     rightLay->setSpacing(6);
     m_permCombo->setFixedHeight(28);
-    rightLay->addWidget(m_permCombo);
+    auto* attachComboRow = new QHBoxLayout();
+    attachComboRow->setSpacing(6);
+    auto* attachBtn = new QPushButton(QStringLiteral("📎"), frame);
+    attachBtn->setToolTip(QStringLiteral("附加上下文文件（路径随目标发给 Agent，可用 read_file 查看）"));
+    attachBtn->setFixedSize(28, 28);
+    connect(attachBtn, &QPushButton::clicked, this, &SessionView::onPickAttachment);
+    attachComboRow->addWidget(m_permCombo);
+    attachComboRow->addWidget(attachBtn);
+    rightLay->addLayout(attachComboRow);
     auto* btnRow = new QHBoxLayout();
     btnRow->setSpacing(6);
     btnRow->addWidget(m_sendBtn, 1);
@@ -365,10 +472,23 @@ void SessionView::onSend() {
     const QString text = m_input->toPlainText().trimmed();
     if (text.isEmpty())
         return;
+    // 附件上下文：路径清单随目标发给 Agent（内容由 Agent 自行 read_file）
+    QString goal = text;
+    if (!m_attachedFiles.isEmpty()) {
+        goal = QStringLiteral("【上下文文件】\n");
+        for (const QString& f : m_attachedFiles)
+            goal += QStringLiteral("- %1\n").arg(f);
+        goal += QStringLiteral("\n【任务目标】\n%1").arg(text);
+        m_attachedFiles.clear();
+        // 清空 chips
+        while (auto* chip = m_chipsHost->findChild<QPushButton*>())
+            chip->deleteLater();
+        m_chipsHost->setVisible(false);
+    }
     m_input->clear();
     if (m_loop->isRunning()) {
         // 任务执行中：入队不打断（规格 4.3；M2 迁入数据库任务队列）
-        m_pendingQueue << text;
+        m_pendingQueue << goal;
         emit queueCountChanged(m_pendingQueue.size());
         auto* note = new QLabel(QStringLiteral("⏳ 任务执行中，新目标已入队"), m_feedHost);
         note->setStyleSheet(QStringLiteral("color:%1;font-size:8pt;").arg(theme::colors::warn().name()));
@@ -474,6 +594,13 @@ void SessionView::onToolCallDelta(int index, const QString& id, const QString& n
 }
 
 void SessionView::onToolCallStarted(const QString& callId, const QString& name, const QString& args) {
+    // 变更树：记录 write_file 目标路径（完成时用 diff 回填右栏）
+    if (name == QLatin1String("write_file")) {
+        const QJsonObject obj = QJsonDocument::fromJson(args.toUtf8()).object();
+        const QString path = obj.value("path").toString();
+        if (!path.isEmpty())
+            m_callPaths.insert(callId, path);
+    }
     ToolCallCard* card = m_idCards.value(callId, nullptr);
     if (!card) {
         // 个别响应无 delta 碎片：直接按 started 建卡
@@ -488,6 +615,30 @@ void SessionView::onToolCallStarted(const QString& callId, const QString& name, 
 }
 
 void SessionView::onToolCallFinished(const QString& callId, bool ok, const QString& resultText, qint64 ms) {
+    // 变更树归档：write_file 结果 envelope 里的 diff 统计/正文回填右栏
+    if (m_callPaths.contains(callId)) {
+        const QString path = m_callPaths.take(callId);
+        const QJsonObject obj = QJsonDocument::fromJson(resultText.toUtf8()).object();
+        const QJsonObject diff = obj.value("diff").toObject();
+        if (!diff.isEmpty()) {
+            ChangeInfo info;
+            info.added = diff.value("added").toInt();
+            info.removed = diff.value("removed").toInt();
+            info.diff = diff.value("diff").toString();
+            m_changes.insert(path, info);
+            m_changesList->clear();
+            for (auto ch = m_changes.constBegin(); ch != m_changes.constEnd(); ++ch) {
+                auto* item = new QListWidgetItem(QStringLiteral("%1  +%2/−%3")
+                                                     .arg(QFileInfo(ch.key()).fileName())
+                                                     .arg(ch->added)
+                                                     .arg(ch->removed),
+                                                 m_changesList);
+                item->setToolTip(ch.key());
+                item->setData(Qt::UserRole, ch.key());
+            }
+            m_changesTitle->setText(QStringLiteral("🔧 变更文件（%1）").arg(m_changes.size()));
+        }
+    }
     if (ToolCallCard* card = m_idCards.value(callId, nullptr)) {
         card->setResult(resultText, ms);
         if (ok)

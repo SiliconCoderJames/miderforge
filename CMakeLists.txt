@@ -48,6 +48,7 @@ add_library(mider_core STATIC
     src/tools/ExtraTools.h     src/tools/ExtraTools.cpp
     src/tools/PermissionGate.h src/tools/PermissionGate.cpp
     src/util/AppDirs.h         src/util/AppDirs.cpp
+    src/util/DiffUtil.h        src/util/DiffUtil.cpp
     src/util/Dpapi.h           src/util/Dpapi.cpp
     src/util/JsonExtract.h     src/util/JsonExtract.cpp
     src/util/Log.h             src/util/Log.cpp

@@ -14,6 +14,32 @@ QString escapeHtml(const QString& s) {
     return QString(s).toHtmlEscaped();
 }
 
+// diff 文本着色（+绿/−红/@@ 强调）：仅当检测到 unified diff 行首记号才逐行包裹
+QString diffColorized(const QString& text) {
+    const QString esc = escapeHtml(text);
+    if (!esc.contains(QLatin1Char('\n')) ||
+        !(esc.contains(QStringLiteral("\n+")) || esc.startsWith(QStringLiteral("+"))
+          || esc.contains(QStringLiteral("\n-")) || esc.startsWith(QStringLiteral("-"))
+          || esc.contains(QStringLiteral("@@"))))
+        return esc;
+    QStringList out;
+    const QStringList lines = esc.split(QLatin1Char('\n'));
+    for (const QString& line : lines) {
+        if (line.startsWith(QStringLiteral("+")))
+            out << QStringLiteral("<span style=\"color:%1\">%2</span>")
+                       .arg(theme::colors::success().name(), line);
+        else if (line.startsWith(QStringLiteral("-")))
+            out << QStringLiteral("<span style=\"color:%1\">%2</span>")
+                       .arg(theme::colors::error().name(), line);
+        else if (line.startsWith(QStringLiteral("@@")))
+            out << QStringLiteral("<span style=\"color:%1;font-weight:bold\">%2</span>")
+                       .arg(theme::colors::brand().name(), line);
+        else
+            out << line;
+    }
+    return out.join(QLatin1Char('\n'));
+}
+
 QString inlineMd(QString s) {
     s = escapeHtml(s);
     static const QRegularExpression codeRe(QStringLiteral("`([^`]+)`"));
@@ -310,14 +336,14 @@ void ToolCallCard::setAwaitingConfirm() {
 void ToolCallCard::setResult(const QString& resultText, qint64 ms) {
     m_costLabel->setText(QStringLiteral("耗时 %1 ms").arg(ms));
     m_fullResult = QStringLiteral("<pre style=\"white-space:pre-wrap;margin:0;\">%1</pre>")
-                       .arg(escapeHtml(resultText));
+                       .arg(diffColorized(resultText));
     // 默认 3 行预览 + 展开按钮
     const QStringList lines = resultText.split(QLatin1Char('\n'));
     QString preview = lines.mid(0, 3).join(QLatin1Char('\n'));
     if (lines.size() > 3)
         preview += QStringLiteral("\n…（共 %1 行）").arg(lines.size());
     m_resultPreview = QStringLiteral("<pre style=\"white-space:pre-wrap;margin:0;\">%1</pre>")
-                          .arg(escapeHtml(preview));
+                          .arg(diffColorized(preview));
     m_resultLabel->setText(m_resultPreview);
     m_resultExpanded = false;
     m_expandBtn->setText(QStringLiteral("展开"));

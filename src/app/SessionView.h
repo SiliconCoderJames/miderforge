@@ -3,12 +3,15 @@
 #pragma once
 #include "app/ChatWidgets.h"
 #include "core/AgentLoop.h"
+#include <QBoxLayout>
 #include <QComboBox>
 #include <QElapsedTimer>
+#include <QHash>
 #include <QLabel>
 #include <QListWidget>
 #include <QPlainTextEdit>
 #include <QScrollArea>
+#include <QStringList>
 #include <QTimer>
 #include <QWidget>
 
@@ -46,11 +49,14 @@ private slots:
     void onPauseToggled(); // M5 P2：暂停/继续切换
     void onSessionSelected(); // 会话列表点击 → 切换/恢复会话
     void onNewSessionClicked();
+    void onPickAttachment();     // Composer：📎 附加上下文文件
+    void onChangedFileClicked(QListWidgetItem* item); // 变更树点击 → 查看 diff
 
 private:
     QWidget* buildStatusStrip();
     QWidget* buildInputArea();
     QWidget* buildSessionPanel();
+    QWidget* buildChangesPanel();
     ToolCallCard* makeCard(const QString& callId, const QString& toolName);
     void appendToFeed(QWidget* w);
     void scrollToEnd();
@@ -84,6 +90,23 @@ private:
     // 会话列表面板（Claude/Codex 式）
     QListWidget* m_sessionList = nullptr;
     qint64 m_currentSessionId = -1;
+
+    // 变更文件右栏（Codex 式线程内变更审查）：write_file 调用 → 路径/diff 归档
+    struct ChangeInfo {
+        int added = 0;
+        int removed = 0;
+        QString diff;
+    };
+    QListWidget* m_changesList = nullptr;
+    QLabel* m_changesTitle = nullptr;
+    QHash<QString, QString> m_callPaths; // callId → write_file 路径
+    QHash<QString, ChangeInfo> m_changes; // path → 变更信息
+
+    // Composer 附件上下文
+    QStringList m_attachedFiles;
+    QWidget* m_attachRow = nullptr;
+    QWidget* m_chipsHost = nullptr;
+    QHBoxLayout* m_chipsLay = nullptr;
 
     // 顶部状态条
     QLabel* m_goalLabel = nullptr;
