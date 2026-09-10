@@ -82,4 +82,12 @@
 - [x] 混合检索：FTS5 + 向量余弦 RRF 融合；BLOB 绑定/读取分支（0x00 不截断）；updateContent 向量失效；backfillEmbeddings 渐进补齐（全部单测，94 用例全绿）(2026-09-09)
 - [x] 无嵌入器时行为与 M5 完全一致（既有记忆用例零改动通过，回归保护）(2026-09-09)
 - [ ] 真实 Key 端到端：zhipu embedding-3 召回质量人工复核（配置后检索「语义近词面远」的记忆观察是否命中）
-- [ ] 供应商页 embedding 配置 UI（当前改 providers.json + 重启）
+- [x] 供应商页 embedding 配置 UI（设置→供应商页：启用开关/嵌入供应商/模型，落盘 providers.json embedding 节）(2026-09-10)
+
+## 打磨期：品牌 + Codex 要素 + Hermes 记忆（2026-09-10）
+
+- [x] 品牌「熔炉·铁灰炉火」默认主题 + codex/zcode/claude 三致敬皮肤（QSettings 持久化；活动栏 🎨 菜单与设置→通用页切换，重启完全生效）；活动栏品牌区 🔨 + 品牌色→强调色渐变签名线；状态栏品牌签名「Miderforge · 锻造云脑·常驻本机」；106 处取色点迁移 colors:: 实时函数（主题纯函数单测 + 实机 UIA 结构取证：7 图标按钮/变更面板/会话面板）(2026-09-10)
+- [x] Codex 要素：DiffUtil 行级 diff（单测）→ write_file 覆盖时 +N/−M 统计与 unified 正文进结果 envelope；工具卡 diff 逐行着色（+绿/−红/@@品牌色）；会话页右侧「变更文件」面板（路径归档/计数徽标/点击弹窗看 diff，随新任务/切会话清空）；Composer 📎 附件上下文（chips 可删，发送并入目标文本）（实机 UIA 取证「变更文件（0）」面板呈现）(2026-09-10)
+- [x] Hermes 记忆：memory_write 三动作（add 查重/replace/remove + 500 字上限 + save/skip 策展门拒收清单转储）；write_approval 审批门（暂存 pending → 记忆页「⏳ 待审」批准/拒绝）；isSafeMemoryContent 安全扫描（不可见 Unicode 逐字符判定 + 中英注入词面，单测）；session_search（messages FTS5 trigram + 触发器三件套，snippet 工具）；L1 注入升级（用量头部 + § 分条，renderL1ForPrompt 单测）(2026-09-10)
+- [ ] 发一条真实任务人工复核：会话建档/消息入库/变更树回填/diff 弹窗/memory_write 全链路（需真实 API Key）
+- [ ] 主题皮肤切换后的视觉人工复核（本会话截屏不可靠；重启后观察炉火橙主色调）
