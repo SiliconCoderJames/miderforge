@@ -492,7 +492,7 @@ void MainWindow::refreshL1Footer() {
 }
 
 void MainWindow::switchNav(int index) {
-    // 左栏已不承载功能页导航；命令面板/菜单仍以索引跳到对应面板（走设置对话框）
+    // 0 = 会话；>=0 的其余索引 = 设置里的某一页（设置已嵌入内容区，不再是独立窗口）
     if (index <= 0) {
         m_stack->setCurrentIndex(0);
         return;
@@ -518,17 +518,22 @@ void MainWindow::openSettingsAt(int pageIndex) {
         panels.providers = m_providerPage;
         panels.audit = m_auditPage;
         m_settings = new SettingsDialog(m_pm, m_mail, panels,
-                                        [this](int idx) { applyPermissionMode(idx); }, this);
+                                        [this](int idx) { applyPermissionMode(idx); }, m_stack);
+        // 嵌入内容区（页 1）：原先用独立 QDialog + exec()，会脱离主窗口布局、
+        // 多一个任务栏条目，也与 Codex/DSH 的"内容区切换"观感不一致
+        m_settingsPageIndex = m_stack->addWidget(m_settings);
+        connect(m_settings, &SettingsDialog::closeRequested, this, [this] { switchNav(0); });
+        connect(m_settings, &SettingsDialog::saved, this, [this] {
+            refreshStatusLabels();
+            refreshProviderCombo();
+            if (m_sessionView)
+                m_sessionView->refreshProviderCombo();
+            refreshL1Footer();
+        });
     }
     if (pageIndex >= 0)
         m_settings->showPage(pageIndex);
-    if (m_settings->exec() == QDialog::Accepted) {
-        refreshProviderCombo();
-        refreshStatusLabels();
-        if (m_sessionView)
-            m_sessionView->refreshProviderCombo();
-        refreshL1Footer();
-    }
+    m_stack->setCurrentIndex(m_settingsPageIndex);
 }
 
 } // namespace miderforge

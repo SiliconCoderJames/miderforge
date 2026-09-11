@@ -1,12 +1,14 @@
-// 设置对话框（ZCode/Codex 风格左导航）：①通用（权限模式等）②供应商（providers.json 表格编辑+Key DPAPI）
-// ③邮件（SMTP+测试邮件）④任务与预算 ⑤记忆与检索（L1 上限）⑥蜂巢（AgentHive 本地连接，仅回环，主密钥 DPAPI）
+// 设置面板（原为独立 QDialog，现改为**嵌入主窗口内容区**的普通 QWidget）。
+// 取舍：设置是"从工作区进去、改完回来"的一级页面，弹独立窗口会脱离主窗口布局、
+// 多一个任务栏条目，也与 Codex/DSH 的"内容区切换"观感不一致。
+// 各页本来就是 QWidget，因此只换基类、页面构建代码零改动。
 #pragma once
 #include "llm/ProviderManager.h"
 #include "notify/EmailNotifier.h"
-#include <QDialog>
 #include <QPair>
 #include <QString>
 #include <QVector>
+#include <QWidget>
 #include <functional>
 
 class QCheckBox;
@@ -22,7 +24,7 @@ class QVBoxLayout;
 
 namespace miderforge {
 
-class SettingsDialog : public QDialog {
+class SettingsDialog : public QWidget {
     Q_OBJECT
 public:
     // 功能面板（任务队列/技能库/记忆/供应商/审计日志）由 MainWindow 持有并传入：
@@ -42,6 +44,12 @@ public:
 
     // 直达某页（命令面板 / 视图菜单用）
     void showPage(int pageIndex);
+
+signals:
+    // 「返回工作区」「关闭」→ 主窗口切回会话页
+    void closeRequested();
+    // 「保存」已落盘 → 主窗口刷新供应商下拉/状态栏/L1 占用
+    void saved();
 
 private slots:
     void onSave();

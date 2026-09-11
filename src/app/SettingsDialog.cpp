@@ -1,5 +1,6 @@
 // 设置对话框实现
 #include "app/SettingsDialog.h"
+#include "app/ChatWidgets.h"
 #include "app/Theme.h"
 #include "core/AppContext.h"
 #include "util/AppDirs.h"
@@ -63,9 +64,9 @@ QString friendlyHealth(const QByteArray& resp) {
 SettingsDialog::SettingsDialog(ProviderManager* pm, EmailNotifier* mail, const Panels& panels,
                                const std::function<void(int)>& applyPermissionMode,
                                QWidget* parent)
-    : QDialog(parent), m_pm(pm), m_mail(mail), m_applyPermissionMode(applyPermissionMode) {
-    setWindowTitle(QStringLiteral("Miderforge 设置"));
-    resize(880, 620);
+    : QWidget(parent), m_pm(pm), m_mail(mail), m_applyPermissionMode(applyPermissionMode) {
+    // 嵌入主窗口内容区（非独立窗口）：无边框、不要自己的标题栏
+    setAttribute(Qt::WA_StyledBackground, true);
 
     // ---- 左导航：返回 / 搜索 / 分组条目（对齐参考图信息架构） ----
     m_navHost = new QWidget(this);
@@ -85,7 +86,7 @@ SettingsDialog::SettingsDialog(ProviderManager* pm, EmailNotifier* mail, const P
         "color:%1;font-size:9.5pt;}"
         "QPushButton:hover{background-color:%2;border-radius:6px;}")
                                .arg(theme::colors::text().name(), theme::colors::panel().name()));
-    connect(backBtn, &QPushButton::clicked, this, &QDialog::reject);
+    connect(backBtn, &QPushButton::clicked, this, &SettingsDialog::closeRequested);
     m_navLay->addWidget(backBtn);
     m_navLay->addSpacing(6);
 
@@ -152,10 +153,12 @@ SettingsDialog::SettingsDialog(ProviderManager* pm, EmailNotifier* mail, const P
     bottom->setContentsMargins(12, 8, 12, 10);
     bottom->addStretch(1);
     auto* save = new QPushButton(QStringLiteral("保存"), this);
-    save->setDefault(true);
+    save->setObjectName(QStringLiteral("primaryBtn"));
+    save->setCursor(Qt::PointingHandCursor);
     connect(save, &QPushButton::clicked, this, &SettingsDialog::onSave);
-    auto* close = new QPushButton(QStringLiteral("关闭"), this);
-    connect(close, &QPushButton::clicked, this, &QDialog::reject);
+    auto* close = new QPushButton(QStringLiteral("返回工作区"), this);
+    close->setCursor(Qt::PointingHandCursor);
+    connect(close, &QPushButton::clicked, this, &SettingsDialog::closeRequested);
     bottom->addWidget(save);
     bottom->addWidget(close);
     auto* bottomW = new QWidget(this);
@@ -571,7 +574,10 @@ void SettingsDialog::onSave() {
     AppContext::instance().memoryWriteApproval = m_memApproval->isChecked();
     // 蜂巢
     saveHive();
-    accept();
+    // 嵌入模式下不再 accept()（无对话框可关）：改为广播"已保存"，由主窗口刷新派生显示。
+    // 停留当前页——用户可能还要继续改别的设置，保存不应把人踢走。
+    Toast::post(window(), QStringLiteral("设置已保存"), Toast::Level::Success, 1800);
+    emit saved();
 }
 
 void SettingsDialog::onSendTestMail() {

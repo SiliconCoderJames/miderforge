@@ -75,8 +75,8 @@ private:
     MemoryView* m_memoryPage = nullptr;
     ProviderPanel* m_providerPage = nullptr;
     AuditLogView* m_auditPage = nullptr;
-    SettingsDialog* m_settings = nullptr; // 持有：避免每次打开都重挂面板
-    QVector<int> m_panelPageIndex;        // 面板在设置堆叠页中的索引（顺序同 openSettings）
+    SettingsDialog* m_settings = nullptr; // 持有：嵌入内容区，避免每次进入都重挂面板
+    int m_settingsPageIndex = -1;         // 设置页在 m_stack 中的索引
     // 说明：权限档/供应商/停止/新建会话的控件均已迁至 Composer 与左栏，此处不再持有
     QLabel* m_statusTokens = nullptr;
     QLabel* m_statusQueue = nullptr;
