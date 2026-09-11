@@ -1,11 +1,12 @@
 # Miderforge 应用图标生成器：深色圆角底 + 琥珀锻造锤 + 蜂窝六边形描边（呼应 AgentHive）
-# 产物：assets/miderforge.ico（16..256 多尺寸）、assets/miderforge-256.png（窗口图标）、预览图
-# 用法：python scripts/make_icon.py   （需 Pillow）
+# 产物：resources/assets/miderforge.ico（16..256 多尺寸）、resources/assets/miderforge-256.png（窗口图标）、预览图
+# 用法：python resources/scripts/make_icon.py   （需 Pillow）
 import math
 import os
 
 from PIL import Image, ImageDraw, ImageFilter
 
+# 本文件位于 resources/scripts/，故资源目录是同级 resources/assets（不能再多退一层）
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ASSETS = os.path.join(ROOT, "assets")
 os.makedirs(ASSETS, exist_ok=True)

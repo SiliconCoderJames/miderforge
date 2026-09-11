@@ -111,8 +111,8 @@ build\Release\miderforge.exe
 | 🧠 [docs/MEMORY-DESIGN.md](docs/MEMORY-DESIGN.md) | 记忆分层设计：存储体系类比、每层管理策略、一致性失效机制 |
 | 📖 [docs/CONFIG.md](docs/CONFIG.md) | 详细配置指南：供应商 Key、权限档、SMTP 通知与密钥卫生红线 |
 | ✅ [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md) | 逐条验收清单、审查处置结论与设计取舍 |
-| 🤝 [CONTRIBUTING.md](CONTRIBUTING.md) | 贡献指南：开发环境、代码风格、测试与提交要求 |
-| 🔒 [SECURITY.md](SECURITY.md) | 安全策略：漏洞报告流程、安全设计要点 |
+| 🤝 [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) | 贡献指南：开发环境、代码风格、测试与提交要求 |
+| 🔒 [docs/SECURITY.md](docs/SECURITY.md) | 安全策略：漏洞报告流程、安全设计要点 |
 
 ## 🏗️ 架构
 
@@ -138,7 +138,7 @@ build\Release\miderforge.exe
 ```
 Miderforge/
 ├── src/
-│   ├── app/        # Qt 界面：主窗口、会话视图、向导、主题
+│   ├── app/        # Qt 界面：主窗口、会话视图、左栏、设置、命令面板、主题
 │   ├── core/       # AgentLoop 状态机、任务调度、三档路由
 │   ├── llm/        # HttpClient(curl)、SseParser、ChatClient、EmbeddingClient、ProviderManager
 │   ├── memory/     # 分层记忆（L1 文件 + L3 库）与 FTS5 检索
@@ -148,10 +148,15 @@ Miderforge/
 │   ├── notify/     # SMTP 邮件、托盘通知
 │   └── util/       # DPAPI、日志、目录、token 估算、JSON 提取
 ├── tests/          # doctest 单元测试（只依赖核心库，可脱离 GUI 运行）
-├── docs/           # CONFIG.md · ACCEPTANCE.md · MEMORY-DESIGN.md · 界面截图
-├── third_party/    # SQLite amalgamation · sqlite-vec（内置源码）
-└── config/         # providers.template.json（唯一入库的配置模板）
+├── docs/           # 设计/配置/验收文档 + CONTRIBUTING.md + SECURITY.md + 界面截图
+├── resources/      # 非代码资源：assets/（图标与 app.rc）· config/（配置模板）· scripts/（图标生成）
+└── third_party/    # SQLite amalgamation · sqlite-vec（内置源码，离线可构建的前提）
 ```
+
+> 仓库根只保留构建入口与元数据（`CMakeLists.txt` · `CMakePresets.json` · `vcpkg.json` ·
+> `README.md` · `LICENSE` · `.gitignore` · `.gitattributes`），其余一律归档到上面各目录。
+> 构建产物默认落在**仓库外**的 `../.miderforge-build/`（见 `CMakePresets.json` 的 `binaryDir`），
+> 仓库目录内不产生任何构建中间物。
 
 ## 🗺️ Roadmap
 
@@ -208,7 +213,7 @@ Miderforge 是一只**单体的蜜蜂**。而当你桌面上同时跑着 Claude 
 
 ## 🤝 贡献
 
-欢迎 Issue 与 PR！提交前请阅读 [CONTRIBUTING.md](CONTRIBUTING.md)，要点：
+欢迎 Issue 与 PR！提交前请阅读 [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md)，要点：
 
 1. 保持既有代码风格（中文注释、`m_` 成员前缀、命名空间 `miderforge`）；
 2. 为纯逻辑改动补充 doctest 单测，并保持全绿；
@@ -216,7 +221,7 @@ Miderforge 是一只**单体的蜜蜂**。而当你桌面上同时跑着 Claude 
 
 ## 🔒 安全
 
-**Miderforge 会在你的电脑上读写文件并执行命令。** 请从 **Suggest** 权限档开始使用；敏感路径任何档位下均被硬拦截；所有操作记录于本地审计日志。安全漏洞请**勿**公开 Issue，优先通过邮件私下披露——完整流程见 [SECURITY.md](SECURITY.md)。
+**Miderforge 会在你的电脑上读写文件并执行命令。** 请从 **Suggest** 权限档开始使用；敏感路径任何档位下均被硬拦截；所有操作记录于本地审计日志。安全漏洞请**勿**公开 Issue，优先通过邮件私下披露——完整流程见 [docs/SECURITY.md](docs/SECURITY.md)。
 
 ## 📬 社区与反馈
 

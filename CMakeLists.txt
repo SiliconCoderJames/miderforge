@@ -97,8 +97,8 @@ target_link_libraries(mider_ui PUBLIC mider_core Qt6::Widgets)
 
 # 主程序
 qt_add_executable(miderforge WIN32 src/main.cpp)
-target_sources(miderforge PRIVATE assets/app.rc) # exe 外壳图标（资源管理器/任务栏/快捷方式）
-qt_add_resources(miderforge "appicons" PREFIX "/" FILES assets/miderforge-256.png) # 窗口图标
+target_sources(miderforge PRIVATE resources/assets/app.rc) # exe 外壳图标（资源管理器/任务栏/快捷方式）
+qt_add_resources(miderforge "appicons" PREFIX "/" FILES resources/assets/miderforge-256.png) # 窗口图标
 target_link_libraries(miderforge PRIVATE mider_ui)
 
 # 运行时 Qt 完整部署（含 platforms/qwindows.dll 插件）：TARGET_RUNTIME_DLLS 只拷核心 DLL，
