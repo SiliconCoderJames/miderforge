@@ -88,15 +88,24 @@ bool SkillManager::writeSkill(const QString& rawName, const QString& description
     f.close();
 
     const qint64 now = QDateTime::currentSecsSinceEpoch();
+    // 落库失败必须上报：提示词注入的可用技能列表读的是 skills 表（AgentLoop），
+    // 静默失败会让 SKILL.md 落在盘上却永远不出现在提示词里，而调用方还记录"技能已沉淀"
+    bool dbOk = false;
     if (existing.id > 0) {
-        m_db->execute(QStringLiteral(
-            "UPDATE skills SET description=?, path=?, status='active', version=?, updated_at=? WHERE id=?"),
-            {description, path, version, now, existing.id});
+        dbOk = m_db->execute(QStringLiteral(
+                   "UPDATE skills SET description=?, path=?, status='active', version=?, updated_at=? WHERE id=?"),
+               {description, path, version, now, existing.id})
+               && find(name).id > 0; // 确认行仍在（execute 只保证语句无错，不代表命中了行）
     } else {
-        m_db->execute(QStringLiteral(
+        dbOk = m_db->execute(QStringLiteral(
             "INSERT INTO skills(name, description, path, status, version, created_at, updated_at) "
             "VALUES(?,?,?, 'active', ?, ?, ?)"),
             {name, description, path, version, now, now});
+    }
+    if (!dbOk) {
+        if (err) *err = QStringLiteral("技能索引写入数据库失败（SKILL.md 已落盘但不会被检索到）：%1")
+                            .arg(m_db->lastError());
+        return false;
     }
     if (newVersion)
         *newVersion = version;

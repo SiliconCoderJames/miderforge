@@ -49,8 +49,14 @@ ToolRegistry::ExecResult ToolRegistry::execute(const QString& name, const QStrin
     QString err;
     result.text = def->handler(args, &err);
     result.ok = err.isEmpty();
-    if (!result.ok)
-        result.text = QStringLiteral("错误：") + err;
+    if (!result.ok) {
+        // 失败时**保留 handler 返回的正文**再前置错误说明：
+        // run_command 这类工具把 exit_code/output 放在信封里交给模型诊断，
+        // 原先直接 text = "错误：" + err 会把信封丢掉，模型只能看到"退出码 1"
+        // 而拿不到编译报错，等于把可自愈的失败变成不可自愈。
+        result.text = result.text.isEmpty() ? QStringLiteral("错误：") + err
+                                            : QStringLiteral("错误：") + err + QStringLiteral("\n") + result.text;
+    }
     result.ms = timer.elapsed();
     return result;
 }

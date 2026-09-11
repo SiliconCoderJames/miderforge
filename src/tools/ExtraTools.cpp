@@ -428,10 +428,18 @@ void ExtraTools::registerAll(ToolRegistry& reg, Database* db, MemoryManager* mem
                 if (err) *err = QStringLiteral("查询词至少 2 个字符");
                 return {};
             }
+            // messages_fts 只有 content 一列（Database.cpp），snippet 的列号必须是 0；
+            // 原先写的 2 越界，SQLite 在 step 时返回 SQLITE_RANGE 被 Database::query 的
+            // while(step==SQLITE_ROW) 静默吞掉 → 本工具永远返回空并宣称"无匹配"
+            const QString term = ftsquery::quoteTerm(query);
+            if (term.isEmpty()) {
+                if (err) *err = QStringLiteral("查询词无效");
+                return {};
+            }
             const auto rows = db->query(QStringLiteral(
-                "SELECT m.session_id, m.role, m.ts, snippet(messages_fts, 2, '[', ']', '…', 24) AS snip "
+                "SELECT m.session_id, m.role, m.ts, snippet(messages_fts, 0, '[', ']', '…', 24) AS snip "
                 "FROM messages_fts f JOIN messages m ON m.id = f.rowid "
-                "WHERE messages_fts MATCH ? ORDER BY rank LIMIT 8"), {query});
+                "WHERE messages_fts MATCH ? ORDER BY rank LIMIT 8"), {term});
             QJsonArray hits;
             for (const auto& r : rows) {
                 hits.append(QJsonObject{
@@ -450,8 +458,11 @@ void ExtraTools::registerAll(ToolRegistry& reg, Database* db, MemoryManager* mem
 }
 
 bool isSafeMemoryContent(const QString& content, QString* reason) {
-    // 1) 不可见 Unicode（Hermes 同款拦截）：零宽字符/方向控制/软连字符/BOM/变体选择符
+    // 1) 不可见 Unicode（Hermes 同款拦截）：零宽字符/词连接符/BOM/软连字符
     //    逐字符判定（确定性，不依赖正则的 Unicode 转义支持）
+    //    已知未覆盖（口径如实收窄，勿按"全部不可见字符"理解）：变体选择符
+    //    U+FE00–U+FE0F 与 U+E0100–U+E01EF、方向隔离符 U+2066–U+2069、
+    //    双向覆盖 U+202A–U+202E、U+061C/U+180E/U+115F/U+1160
     for (const QChar ch : content) {
         const char16_t u = ch.unicode();
         const bool invisible = (u >= 0x200B && u <= 0x200F) || (u >= 0x2060 && u <= 0x2064)

@@ -190,10 +190,22 @@ void CommandTools::registerAll(ToolRegistry& reg) {
             merged = merged.left(256 * 1024); // 决策: 输出封顶 256KB
         // UTF-8 全链路；MSVC 工具链 GBK 输出场景由模型自行请求 chcp 适配（v1 从简）
         const QString text = QString::fromUtf8(merged);
+        const bool ok = proc.exitStatus() == QProcess::NormalExit && proc.exitCode() == 0
+                        && !timedOut && !cancelledByUser;
+        // 同时用 *err 上报失败：ToolRegistry 以 err.isEmpty() 判定 ExecResult::ok，
+        // 而本工具把成败只写在 envelope 里 → 编译失败会被当成"工具调用成功"，
+        // 于是同一个编译错误反复重试也永远不触发熔断与升档，卡片还显示 ✓。
+        // 保留完整 envelope 作为文本（模型需要 exit_code/output）。
+        if (!ok && err) {
+            *err = timedOut                       ? QStringLiteral("命令超时（%1s）").arg(timeoutSec)
+                   : cancelledByUser              ? QStringLiteral("命令被用户取消")
+                   : proc.exitStatus() != QProcess::NormalExit
+                       ? QStringLiteral("命令异常终止（崩溃或被 Job 沙箱终止）")
+                       : QStringLiteral("命令退出码 %1").arg(proc.exitCode());
+        }
 
         return envelope(QJsonObject{
-            {"ok", proc.exitStatus() == QProcess::NormalExit && proc.exitCode() == 0 && !timedOut
-                       && !cancelledByUser},
+            {"ok", ok},
             {"exit_code", proc.exitCode()},
             {"timed_out", timedOut},
             {"cancelled", cancelledByUser},

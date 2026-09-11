@@ -73,6 +73,11 @@ public:
     // 技能确认回调：保存提案（同名 merge version+1）
     void acceptSkillProposal(const QString& name, const QString& description, const QString& md);
 
+    // 手动重跑单个工具（工具卡「重跑」按钮）：**必须重新过权限门**——
+    // 直接调 ToolRegistry::execute 会绕过永不解禁清单与三档权限，所以入口放在这里。
+    // 返回执行结果 envelope；被拒绝时返回错误说明，*denied 置位
+    QString rerunTool(const QString& toolName, const QString& argsJson, bool* denied = nullptr);
+
     static QString stateName(State s);
 
 signals:
@@ -143,7 +148,7 @@ private:
     Router::Tier m_tier = Router::Tier::Main;
     int m_consecToolFailures = 0;   // 同一工具连续失败（升档判定）
     bool m_tierEscalated = false;   // 本任务已升档一次
-    int m_transportFailures = 0;    // 连续传输级失败（故障转移判定）
+    int m_transportFailures = 0;    // 传输级失败计数（故障转移日志用；是否转移由 m_failedOver 控制）
     bool m_failedOver = false;      // 本任务已切换供应商
     qint64 m_lastPromptTokens = 0;  // 上一轮流prompt用量（增量记账：只收新增输入，避免重发 history 造成 O(N²) 口径）
     bool m_toolCancelSeen = false;  // M5 P3：工具响应取消令牌后置位，工具批收尾时判停

@@ -22,8 +22,12 @@ Scheduler::Scheduler(Database* db, AgentLoop* loop, QObject* parent)
     const auto stale = m_db->query(
         QStringLiteral("SELECT id FROM tasks WHERE status IN ('running','paused')"), {});
     if (!stale.empty()) {
+        // ⚠️ 同时把 scheduled_at 归一为 0（立即执行）：会话路径建的 tasks 行该列是 NULL，
+        // 而 SQLite 里 `NULL = 0` 与 `NULL <= ?` 都求值为 NULL（非真），tick 的
+        // "scheduled_at=0 OR scheduled_at<=?" 永远匹配不到 → 重新入队后卡在"排队中"永不启动。
         m_db->execute(QStringLiteral(
-            "UPDATE tasks SET status='queued' WHERE status IN ('running','paused')"), {});
+            "UPDATE tasks SET status='queued', scheduled_at=COALESCE(scheduled_at, 0) "
+            "WHERE status IN ('running','paused')"), {});
         if (auto lg = logutil::logger())
             lg->warn("启动恢复：{} 个中断/挂起任务已重新入队", stale.size());
     }
@@ -32,9 +36,12 @@ Scheduler::Scheduler(Database* db, AgentLoop* loop, QObject* parent)
 void Scheduler::tick() {
     if (m_loop->isRunning())
         return;
-    // 到点/待启动的队列任务：scheduled_at=0(立即) 或 <=now；context_json 为 M5-④ 断点（可能为空）
+    // 到点/待启动的队列任务：scheduled_at 为 0 或 NULL（立即）或 <=now；context_json 为 M5-④ 断点（可能为空）。
+    // NULL 必须显式判等——`NULL = 0` 在 SQL 里是 NULL 而非 true，漏掉这段判断会让
+    // 所有由会话路径创建（scheduled_at 为 NULL）的排队任务永远不被调度。
     const auto rows = m_db->query(QStringLiteral(
-        "SELECT id, goal, context_json FROM tasks WHERE status='queued' AND (scheduled_at=0 OR scheduled_at<=?) "
+        "SELECT id, goal, context_json FROM tasks WHERE status='queued' "
+        "AND (scheduled_at IS NULL OR scheduled_at=0 OR scheduled_at<=?) "
         "ORDER BY created_at ASC, id ASC LIMIT 1"),
         {QDateTime::currentSecsSinceEpoch()});
     if (rows.empty())

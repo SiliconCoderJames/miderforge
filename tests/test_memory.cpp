@@ -1,6 +1,8 @@
 // 记忆系统单测（M2 验收：trigram 中文检索、短词 LIKE 兜底、评分排序、L2 滚动）
 #include "db/Database.h"
 #include "memory/MemoryManager.h"
+#include "tools/ExtraTools.h"
+#include "tools/ToolRegistry.h"
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
@@ -14,6 +16,33 @@
 
 using miderforge::Database;
 using miderforge::MemoryManager;
+using miderforge::ToolRegistry;
+using miderforge::ftsquery::quoteTerm;
+
+// 带工具注册表的夹具：session_search 需要 ToolRegistry + Database + MemoryManager
+namespace {
+struct ToolFixture {
+    Database db;
+    std::unique_ptr<MemoryManager> mem;
+    std::unique_ptr<ToolRegistry> reg;
+    QString dir;
+    ToolFixture() {
+        dir = QStringLiteral("./test-data/tool-%1").arg(QRandomGenerator::global()->generate());
+        QDir().mkpath(dir);
+        QString err;
+        REQUIRE(db.open(dir + QStringLiteral("/t.db"), &err));
+        mem = std::make_unique<MemoryManager>(&db, dir + QStringLiteral("/core.md"));
+        reg = std::make_unique<ToolRegistry>();
+        miderforge::ExtraTools::registerAll(*reg, &db, mem.get());
+    }
+    ~ToolFixture() {
+        reg.reset();
+        mem.reset();
+        db.close();
+        QDir(dir).removeRecursively();
+    }
+};
+} // namespace
 
 namespace {
 // 每个用例独立临时库
@@ -420,4 +449,121 @@ TEST_CASE("嵌入熔断：连续失败 3 次后本进程停用语义通道，FTS
     REQUIRE_FALSE(h3.empty());
     CHECK(h3.first().id == ftsHit);
     (void)stub.release(); // 进程级测试，交还 OS
+}
+
+// ============ 回归：L1 自动改写闸门（曾因基准只在内存里而永久失效）============
+// 旧实现把"Agent 上次写入"记在成员变量 m_lastAgentWrite，进程重启即丢失；
+// 而 core.md 只在首次为空时被写过一次 → 之后每次启动都判成"用户手建"，
+// l1UserEditedRecently() 恒为 true，L1 提炼式改写从未真正运行过。
+
+TEST_CASE("L1 闸门：Agent 自己写入登记了跨进程基准，重启后仍允许继续改写") {
+    MemFixture f;
+    const QString l1 = QStringLiteral("# 用户画像\n- 偏好深色主题");
+    CHECK(f.mem->saveL1(l1));
+    CHECK_FALSE(f.mem->l1UserEditedRecently()); // 自己写的 → 允许改写
+
+    // 模拟进程重启：新实例装载同一 core.md 与同一状态文件
+    {
+        MemoryManager reopened(&f.db, f.dir + QStringLiteral("/core.md"));
+        CHECK_FALSE(reopened.l1UserEditedRecently()); // 旧实现这里恒为 true（F1 根因）
+        CHECK(reopened.loadL1() == l1);
+        // 重启后仍能完成一次改写
+        CHECK(reopened.saveL1(QStringLiteral("# 用户画像\n- 偏好深色主题\n- 用中文回复")));
+    }
+    CHECK_FALSE(f.mem->l1UserEditedRecently());
+}
+
+TEST_CASE("L1 闸门：检测到外部手改则拒绝改写；内容改回基准后恢复允许") {
+    MemFixture f;
+    const QString l1 = QStringLiteral("# 用户画像\n- 偏好深色主题");
+    REQUIRE(f.mem->saveL1(l1));
+
+    // 模拟用户直接编辑 core.md（不经 saveL1，故不更新基准）
+    {
+        QFile w(f.dir + QStringLiteral("/core.md"));
+        REQUIRE(w.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        w.write(QStringLiteral("# 用户画像\n- 用户手写的内容，不许覆盖").toUtf8());
+    }
+    CHECK(f.mem->l1UserEditedRecently()); // 内容变了 → 保护
+
+    // 内容恢复成基准 → 视为无人改动，重新允许改写
+    REQUIRE(f.mem->saveL1(l1));
+    CHECK_FALSE(f.mem->l1UserEditedRecently());
+}
+
+TEST_CASE("L1 闸门：无基准状态文件（旧版本遗留 core.md）时保守保护，保存一次即建立基准") {
+    MemFixture f;
+    // 只有 core.md，没有状态文件 —— 等价于从旧版本升级上来的用户
+    {
+        QFile w(f.dir + QStringLiteral("/core.md"));
+        REQUIRE(w.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        w.write(QStringLiteral("# 用户画像\n- 升级前遗留内容").toUtf8());
+    }
+    CHECK(f.mem->l1UserEditedRecently()); // 无法确证 → 保护（宁可漏改写，不可覆盖用户内容）
+    REQUIRE(f.mem->saveL1(QStringLiteral("# 用户画像\n- 用户确认过的内容")));
+    CHECK_FALSE(f.mem->l1UserEditedRecently()); // 保存建立基准后恢复自动改写
+}
+
+TEST_CASE("L1 闸门：文件不存在时不保护（允许首次建立）") {
+    MemFixture f;
+    CHECK_FALSE(f.mem->l1UserEditedRecently());
+}
+
+// ============ 回归：FTS5 MATCH 查询词必须引号包裹 ============
+// 裸绑用户文本会被 FTS5 当查询语法解析，C++/CMake 项目最常见的词元全部报错，
+// 而 Database::query 只循环 while(step==SQLITE_ROW)，错误被静默吞掉 → 零召回无任何提示。
+
+TEST_CASE("FTS5 词元转义：引号包裹并转义内部双引号") {
+    CHECK(quoteTerm(QStringLiteral("构建")) == QStringLiteral("\"构建\""));
+    CHECK(quoteTerm(QStringLiteral("  CMakeLists.txt  ")) == QStringLiteral("\"CMakeLists.txt\""));
+    CHECK(quoteTerm(QStringLiteral("a\"b")) == QStringLiteral("\"a\"\"b\"")); // 内部 " 翻倍
+    CHECK(quoteTerm(QStringLiteral("   ")).isEmpty());
+    CHECK(quoteTerm(QString()).isEmpty());
+}
+
+TEST_CASE("FTS5 检索：代码标识符（点/加号/双冒号/连字符）能被正确召回") {
+    MemFixture f;
+    f.mem->addMemory(QStringLiteral("project_facts"),
+                     QStringLiteral("本项目用 CMakeLists.txt 配置 Qt6::Widgets，语言标准 C++20，源码 utf-8。"),
+                     0.8);
+    // 这些词元在旧实现下会抛 fts5 语法错误（syntax error near "."/"+"、no such column）
+    for (const char* term : {"CMakeLists.txt", "C++20", "Qt6::Widgets", "utf-8"}) {
+        const auto hits = f.mem->retrieve(QString::fromLatin1(term), 5);
+        CHECK_MESSAGE(!hits.empty(), "term=" << term);
+    }
+    // 中文路径照常
+    CHECK_FALSE(f.mem->retrieve(QStringLiteral("语言标准"), 5).empty());
+}
+
+TEST_CASE("session_search：能真正召回历史消息（snippet 列号曾越界导致永远空结果）") {
+    ToolFixture f;
+    const qint64 now = QDateTime::currentSecsSinceEpoch();
+    f.db.execute(QStringLiteral("INSERT INTO sessions(title, created_at, updated_at) VALUES(?,?,?)"),
+                 {QStringLiteral("检索重构"), now, now});
+    f.db.execute(QStringLiteral(
+                     "INSERT INTO messages(session_id, role, content, ts) VALUES(1,'user',?,?)"),
+                 {QStringLiteral("请帮我重构记忆模块的检索逻辑"), now});
+    f.db.execute(QStringLiteral(
+                     "INSERT INTO messages(session_id, role, content, ts) VALUES(1,'assistant',?,?)"),
+                 {QStringLiteral("好的，我来重构记忆模块的检索"), now + 1});
+
+    const auto res = f.reg->execute(QStringLiteral("session_search"),
+                                    QStringLiteral("{\"query\":\"记忆模块\"}"));
+    REQUIRE(res.ok);
+    const QJsonObject obj = QJsonDocument::fromJson(res.text.toUtf8()).object();
+    const QJsonArray hits = obj.value(QStringLiteral("hits")).toArray();
+    CHECK_MESSAGE(hits.size() == 2, "hits=" << hits.size() << " text=" << res.text.toStdString());
+    if (!hits.isEmpty()) {
+        // snippet 命中高亮：命中词被 [ ] 包裹
+        bool highlighted = false;
+        for (const auto& h : hits)
+            if (h.toObject().value(QStringLiteral("snippet")).toString().contains(QLatin1Char('[')))
+                highlighted = true;
+        CHECK(highlighted);
+    }
+    // 带语法字符的查询词不应报错（旧实现直接抛 fts5 syntax error）
+    const auto res2 = f.reg->execute(QStringLiteral("session_search"),
+                                     QStringLiteral("{\"query\":\"CMakeLists.txt\"}"));
+    CHECK(res2.ok);
+    CHECK(QJsonDocument::fromJson(res2.text.toUtf8()).object().value(QStringLiteral("hits")).toArray().isEmpty());
 }

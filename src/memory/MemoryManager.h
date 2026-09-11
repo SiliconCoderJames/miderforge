@@ -7,11 +7,26 @@
 #include <QPair>
 #include <QVector>
 #include <QString>
+#include <QStringList>
 
 namespace miderforge {
 
 class Database;
 class EmbeddingClient;
+
+// FTS5 查询词构造（纯函数，可单测）。MATCH 右侧是 FTS5 自己的查询语法，不是纯文本：
+// 裸绑用户文本会被当语法解析，C++/CMake 项目里最常见的词元全部报错并静默零召回——
+//   'CMakeLists.txt' -> syntax error near "."   'C++20' -> syntax error near "+"
+//   'Qt6::Widgets'   -> no such column: Qt6     'utf-8' -> no such column: 8
+// 双引号包裹成短语后按字面量匹配（内部 " 按 FTS5 规则翻倍转义），以上全部正常命中。
+namespace ftsquery {
+
+// 单个词 → 带引号短语；空/全空白返回空串
+QString quoteTerm(const QString& raw);
+// 多个词 → "a" OR "b" OR …；跳过空项，全空返回空串
+QString orTerms(const QStringList& terms);
+
+} // namespace ftsquery
 
 class MemoryManager {
 public:
@@ -33,8 +48,15 @@ public:
     QString loadL1() const;              // 文件不存在返回空串
     bool saveL1(const QString& content) const;
     long long l1Tokens() const;          // 当前 L1 token 占用（导航底部进度条数据源）
-    // 用户 24h 内手改保护（规格 6）：Agent 自动改写前必须检查；Agent 自己的写入不算用户编辑
+    // 用户手改保护（规格 6）：Agent 自动改写前必须检查；Agent 自己的写入不算用户编辑。
+    // 判定依据是持久化的"Agent 上次写入状态"（core.md.agent-state.json：内容 SHA-256 + 写入时刻），
+    // 跨进程有效——此前只比对内存里的 mtime，重启后基准丢失导致任何已存在的 core.md 都被判为
+    // "用户手建"而永久拒绝改写，L1 自动改写从未真正运行过。
     bool l1UserEditedRecently() const;
+    // 记录"本次写入的基准"（内容 SHA-256 + 时刻）并落盘，跨进程有效。
+    // saveL1 内部自动调用；用户在记忆视图手改后也需调用一次：手改本身是用户行为，
+    // 但它给出了新的已确认基准，否则保护逻辑永远无法确认"之后没人再改过"。
+    void recordWriteBaseline(const QString& content) const;
 
     // ---- L3 档案库 ----
     // status：'active'（默认）/ 'pending'（Hermes write_approval 审批门：待人工批准）
@@ -106,11 +128,19 @@ public:
 private:
     QVector<MemoryRecord> selectBySql(const QString& sql, const QVariantList& binds) const;
 
+    // ---- L1 Agent 写入状态（core.md.agent-state.json，跨进程持久化） ----
+    // 记录基准的内容 SHA-256 与写入时刻。判定语义：
+    //   当前内容哈希 == 记录哈希      → 是基准写入者自己写的，允许下次改写
+    //   哈希不同且文件 mtime 晚于记录时刻 → 之后有人手改，拒绝改写（保护）
+    //   mtime 更早或相等（时钟回拨/外部还原）→ 按手改保护处理
+    bool loadAgentWriteState() const; // 填充 m_lastAgentWrite/m_lastAgentWriteHash，缺文件返回 false
+
     Database* m_db = nullptr;
     QString m_l1Path;
     EmbeddingClient* m_embedder = nullptr; // M6-A 语义检索；nullptr = 纯 FTS5
     int m_embedFailStreak = 0; // 嵌入连续失败计数（≥3 熔断本进程语义通道，防断网时每轮检索白等超时）
-    mutable QDateTime m_lastAgentWrite; // Agent 最近一次写 L1 的文件 mtime（用户保护判定）
+    mutable QDateTime m_lastAgentWrite;    // 基准写入时刻（每次判定从状态文件重读）
+    mutable QString m_lastAgentWriteHash;  // 基准内容 SHA-256（区分"基准写入者写的"与"之后被改的"）
 };
 
 } // namespace miderforge

@@ -784,17 +784,19 @@ void AgentLoop::finalizeTaskWrites(const QJsonObject& parsed) {
         const QString sessionSummary = parsed.value("session_summary").toString();
         if (!sessionSummary.isEmpty())
             m_deps.mem->addSessionSummary(sessionSummary.left(400));
-        // ③ L1 提炼式改写（用户 24h 内手改保护）
+        // ③ L1 提炼式改写（用户手改保护）
         const QString l1New = parsed.value("l1_new").toString();
+        bool l1Rewritten = false;
         if (!l1New.isEmpty() && !m_deps.mem->l1UserEditedRecently())
-            m_deps.mem->saveL1(l1New);
+            l1Rewritten = m_deps.mem->saveL1(l1New);
         // ⑤ 失败教训
         const QString lesson = parsed.value("lesson").toString();
         if (!ok && !lesson.isEmpty())
             m_deps.mem->addMemory(QStringLiteral("task_lesson"), lesson, 0.8);
         // ⑤b 一致性失效（存储体系 write-through + invalidation）：
-        // L1 已按新知改写 → 同步归档被覆盖/推翻的 L3 旧条目。编号白名单校验防幻觉误伤
-        if (!m_injectedMemories.isEmpty()) {
+        // 只有 L1 真的按新知改写成功后，才归档被覆盖/推翻的 L3 旧条目——否则会出现
+        // "旧记忆被归档、新知识没写进去"的净知识丢失。未改写时留档并记录原因，便于排查。
+        if (l1Rewritten && !m_injectedMemories.isEmpty()) {
             QVector<qint64> injectedIds;
             injectedIds.reserve(m_injectedMemories.size());
             for (const auto& [id, snippet] : m_injectedMemories) {
@@ -810,6 +812,15 @@ void AgentLoop::finalizeTaskWrites(const QJsonObject& parsed) {
                 if (auto lg = logutil::logger())
                     lg->info("一致性失效：{} 条被本次新知覆盖的旧记忆已归档", invalidated);
             }
+        } else if (!m_injectedMemories.isEmpty() && !l1Rewritten) {
+            const QString why = l1New.isEmpty() ? QStringLiteral("模型未给出 l1_new")
+                                                : QStringLiteral("检测到用户手改");
+            if (auto lg = logutil::logger())
+                lg->info("L1 未改写（{}），跳过一致性失效归档以免丢失旧记忆", why.toStdString());
+            if (m_deps.events)
+                m_deps.events->append(QStringLiteral("memory_invalidate_skipped"), m_taskId,
+                                      QJsonObject{{"reason", l1New.isEmpty() ? "no_l1_new"
+                                                                             : "user_edited"}});
         }
         // ⑤c L1 容量纪律（存储体系：每层有容量上限）。v1 软约束：提示词要求控制 + 超限告警
         const long long used = m_deps.mem->l1Tokens();
@@ -856,6 +867,51 @@ void AgentLoop::acceptSkillProposal(const QString& name, const QString& descript
     }
 }
 
+QString AgentLoop::rerunTool(const QString& toolName, const QString& argsJson, bool* denied) {
+    if (denied)
+        *denied = false;
+    if (!m_deps.tools)
+        return QStringLiteral("错误：工具注册表不可用");
+
+    // 与自动执行同一条权限路径（classifyTarget + evaluate）：
+    // 手动重跑不是"后门"，同样受永不解禁清单与三档权限约束
+    PermissionGate::Kind kind = PermissionGate::Kind::ReadFile;
+    const QString target = classifyTarget(toolName, argsJson, &kind);
+    const auto decision = m_gate.evaluate(AppContext::instance().permissionMode, kind, target,
+                                          AppContext::instance().workspaceRoot);
+    if (decision != PermissionGate::Decision::Allowed) {
+        if (denied)
+            *denied = true;
+        const QString why = decision == PermissionGate::Decision::Denied
+                                ? QStringLiteral("该操作被权限系统永久拒绝")
+                                : QStringLiteral("当前权限档（%1）下这类操作需逐次确认，"
+                                                 "手动重跑无法弹确认卡片；请切到 Full Access，"
+                                                 "或先在任务流中选「本会话总是允许」")
+                                      .arg(permissionModeName(AppContext::instance().permissionMode));
+        if (m_deps.events)
+            m_deps.events->append(QStringLiteral("permission_deny"), m_taskId,
+                                  QJsonObject{{"tool", toolName}, {"target", target},
+                                              {"via", "manual_rerun"}});
+        return QStringLiteral("错误：%1：%2").arg(why, target);
+    }
+
+    // 清掉可能残留的取消令牌：任务被"流式中取消"时 onStreamFinished 的 aborted 分支会直接
+    // 判停且不消费令牌，于是令牌一直是 true。手动重跑发生在任务之间，不该继承上一个已结束
+    // 任务的取消请求——否则工具入口快检会直接返回"已被用户取消"，看起来像重跑失败。
+    if (m_deps.tools)
+        m_deps.tools->consumeToolCancel();
+
+    const auto res = m_deps.tools->execute(toolName, argsJson);
+    if (!res.ok && denied)
+        *denied = true; // 执行失败也要让调用方知道：否则 UI 会把失败画成绿色"已重跑"
+    if (m_deps.events)
+        m_deps.events->append(QStringLiteral("tool_result"), m_taskId,
+                              QJsonObject{{"tool", toolName}, {"ok", res.ok},
+                                          {"ms", double(res.ms)}, {"via", "manual_rerun"},
+                                          {"result", res.text.left(2000)}});
+    return res.text;
+}
+
 void AgentLoop::stopForUserCancel() {
     m_running = false;
     m_terminalStatus = QStringLiteral("cancelled");
@@ -884,15 +940,20 @@ void AgentLoop::persistTaskEnd(bool ok, const QString& resultSummary, const QStr
 }
 
 void AgentLoop::handleTransportFailure(const QString& error, int httpCode) {
-    // M4 故障转移（规格 8）：当前供应商连续 2 次 429/超时/5xx → 切 failover_backup
+    // M4 故障转移（规格 8）：传输类失败（429/超时/5xx/无响应）切 failover_backup。
+    // 触发次数由调用方控制（每任务至多一次，见 onStreamFailed 的 m_failedOver 兜底）——
+    // 这里不再自设 ">= 2 次" 门槛：那会让首次失败直接判死任务，使转移永远无法发生。
     const bool transportLike = (httpCode == 0 || httpCode == 429 || httpCode >= 500);
     if (!transportLike)
         return;
     ++m_transportFailures;
-    if (m_transportFailures < 2 || !m_deps.providers)
+    if (!m_deps.providers)
         return;
     if (m_deps.providers->switchToFailover(error)) {
         m_failedOver = true;
+        if (auto lg = logutil::logger())
+            lg->warn("供应商故障转移：{}（本任务累计传输级失败 {} 次）", error.toStdString(),
+                     m_transportFailures);
         m_transportFailures = 0;
         if (m_deps.events)
             m_deps.events->append(QStringLiteral("provider_switch"), m_taskId,
@@ -925,16 +986,26 @@ void AgentLoop::onStreamFailed(const QString& error, int httpCode, bool willRetr
         finalizeTaskWrites(QJsonObject());
         return;
     }
-    const int failuresBefore = m_transportFailures;
-    // 已故障转移过的不再重复切（备胎也挂则真失败）
-    if (!m_failedOver && failuresBefore < 2) {
+    // 传输类失败先给故障转移一次机会。
+    // 旧实现在这里要求 m_transportFailures >= 2 才调用 handleTransportFailure，但
+    // m_transportFailures 在 beginTask 归零、而第一次传输类失败必定走到本函数末尾把任务
+    // 判失败（persistTaskEnd + loopFailed）——单个任务内永远攒不到 2 次，switchToFailover
+    // 因此成了不可达死代码，"故障转移 + 冷却自动回切"在运行时从未生效。
+    // 现在：每个任务最多自动转移一次（m_failedOver 兜底防来回切），备胎也失败才判失败。
+    // 注：ChatClient 自身还有 2 次内部重试，故实际 HTTP 尝试次数为 3。
+    if (!m_failedOver) {
         m_running = false; // handleTransportFailure 内部可能重启任务
         setState(State::Failed);
         handleTransportFailure(error, httpCode);
         if (m_running)
-            return; // 已切换供应商并重启
-        m_running = false;
+            return; // 已切换供应商并重跑本轮
     }
+    // ⚠️ 必须无条件清 m_running：上面那个 if 只在"尚未转移过"时进入，
+    // 于是"转移成功 → 备胎也失败"这条路径会跳过块内的 m_running=false，
+    // 留下"已 emit loopFailed、任务行已判失败，但 isRunning() 仍为 true"的僵死态：
+    // 新目标只会进 SessionView 的待办队列、beginTask 拒绝启动、Scheduler::tick 永远早退
+    // —— 整个任务引擎卡死且无法自愈，只能重启进程。
+    m_running = false;
     setState(State::Failed);
     persistTaskEnd(false, QString(), error);
     if (m_deps.events)

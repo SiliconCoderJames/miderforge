@@ -4,15 +4,18 @@
 #include "llm/EmbeddingClient.h"
 #include "util/Log.h"
 #include "util/Tokens.h"
+#include <QCryptographicHash>
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QHash>
 #include <QJsonArray>
+#include <QJsonDocument>
 #include <QJsonObject>
 #include <QRegularExpression>
 #include <QSet>
+#include <QStringList>
 #include <spdlog/spdlog.h>
 #include <algorithm>
 #include <cmath>
@@ -20,6 +23,30 @@
 #include <limits>
 
 namespace miderforge {
+
+// ---- FTS5 查询词构造（见 MemoryManager.h 的说明） ----
+namespace ftsquery {
+
+QString quoteTerm(const QString& raw) {
+    const QString t = raw.trimmed();
+    if (t.isEmpty())
+        return {};
+    QString escaped = t;
+    escaped.replace(QLatin1Char('"'), QStringLiteral("\"\""));
+    return QStringLiteral("\"%1\"").arg(escaped);
+}
+
+QString orTerms(const QStringList& terms) {
+    QStringList quoted;
+    for (const QString& t : terms) {
+        const QString q = quoteTerm(t);
+        if (!q.isEmpty())
+            quoted << q;
+    }
+    return quoted.join(QStringLiteral(" OR "));
+}
+
+} // namespace ftsquery
 
 namespace {
 
@@ -56,8 +83,40 @@ bool MemoryManager::saveL1(const QString& content) const {
     const bool ok = f.write(content.toUtf8()) >= 0; // 全链路 UTF-8
     f.close();
     if (ok)
-        m_lastAgentWrite = QFileInfo(m_l1Path).lastModified(); // 登记 Agent 写入
+        recordWriteBaseline(content); // 登记基准（落盘，跨进程有效）
     return ok;
+}
+
+// Agent 写入状态文件：与 core.md 同目录的隐藏侧车文件
+static QString agentStatePath(const QString& l1Path) {
+    return l1Path + QStringLiteral(".agent-state.json");
+}
+
+void MemoryManager::recordWriteBaseline(const QString& content) const {
+    m_lastAgentWrite = QDateTime::currentDateTime();
+    m_lastAgentWriteHash = QString::fromLatin1(
+        QCryptographicHash::hash(content.toUtf8(), QCryptographicHash::Sha256).toHex());
+    QJsonObject obj;
+    obj.insert(QStringLiteral("agent_write_at"), m_lastAgentWrite.toString(Qt::ISODate));
+    obj.insert(QStringLiteral("content_sha256"), m_lastAgentWriteHash);
+    QFile f(agentStatePath(m_l1Path));
+    if (f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+        f.write(QJsonDocument(obj).toJson(QJsonDocument::Compact));
+}
+
+// 读取持久化基准（总是重读，不只读一次）：
+// 基准文件可能被"另一个 MemoryManager 实例"更新（同进程多实例、或将来引入工作线程/独立进程），
+// 只缓存一次会让本实例拿着过期基准，把"别人刚写的"误判成用户手改（漏改写而非丢数据，但仍属错误）。
+// 文件只有两个字段，每次判定至多一次小文件读取，开销可忽略。
+bool MemoryManager::loadAgentWriteState() const {
+    QFile f(agentStatePath(m_l1Path));
+    if (!f.open(QIODevice::ReadOnly))
+        return false;
+    const QJsonObject obj = QJsonDocument::fromJson(f.readAll()).object();
+    m_lastAgentWrite = QDateTime::fromString(obj.value(QStringLiteral("agent_write_at")).toString(),
+                                             Qt::ISODate);
+    m_lastAgentWriteHash = obj.value(QStringLiteral("content_sha256")).toString();
+    return m_lastAgentWrite.isValid() && !m_lastAgentWriteHash.isEmpty();
 }
 
 long long MemoryManager::l1Tokens() const {
@@ -65,17 +124,45 @@ long long MemoryManager::l1Tokens() const {
 }
 
 bool MemoryManager::l1UserEditedRecently() const {
-    // 决策: 记录 Agent 最近一次写入的文件 mtime；文件 mtime 与之不同且距 Agent 写入 <24h
-    // 视为用户手改（Agent 写入由 saveL1 统一登记）
+    // 规格 6「用户手改保护」：判定分三步，任一步无法确认"就是 Agent 自己写的"即保护。
+    // 依据持久化状态（Agent 上次写入的内容哈希 + 时刻），因此重启后依然成立。
     QFileInfo info(m_l1Path);
     if (!info.exists())
-        return false;
+        return false; // 无文件 = 无内容可保护，允许建立
+
+    // ① 从没记录过基准：core.md 并非本 Agent 所写（首装即存在 / 旧版本遗留）
+    //    → 无基准可判"之后有没有人改过"，一律保护，等用户在记忆视图保存一次以建立基准
+    if (!loadAgentWriteState()) {
+        if (auto lg = logutil::logger())
+            lg->warn("L1 尚无写入基准（{} 缺失），保守起见不自动改写；"
+                     "在记忆视图保存一次即可建立基准",
+                     agentStatePath(m_l1Path).toStdString());
+        return true;
+    }
+
+    QFile f(m_l1Path);
+    if (f.open(QIODevice::ReadOnly)) {
+        const QByteArray raw = f.readAll();
+        f.close();
+        // ② 内容与基准完全一致 → 自基准写入后无人改动，允许改写
+        const QString hash = QString::fromLatin1(
+            QCryptographicHash::hash(raw, QCryptographicHash::Sha256).toHex());
+        if (hash == m_lastAgentWriteHash)
+            return false;
+    }
+
+    // ③ 内容已变：mtime 晚于/等于基准时刻 → 有人在其后手改，保护
+    //    （mtime 更早属时钟回拨或外部还原，同样保护——宁可漏改写，不可覆盖用户内容）
     const QDateTime mtime = info.lastModified();
-    if (m_lastAgentWrite.isValid() && mtime == m_lastAgentWrite)
-        return false; // 就是 Agent 自己写的
-    if (!m_lastAgentWrite.isValid())
-        return true; // Agent 从未写过而文件存在：用户手建，保护
-    return m_lastAgentWrite.secsTo(mtime) != 0 && mtime > m_lastAgentWrite.addSecs(-1);
+    if (mtime >= m_lastAgentWrite) {
+        if (auto lg = logutil::logger())
+            lg->info("L1 检测到手改（{} ≥ 基准 {}），本次不自动改写",
+                     mtime.toString(Qt::ISODate).toStdString(),
+                     m_lastAgentWrite.toString(Qt::ISODate).toStdString());
+        return true;
+    }
+    // 内容变但 mtime 更早：无法确证用户意图，按保护处理
+    return true;
 }
 
 qint64 MemoryManager::addMemory(const QString& type, const QString& content, double importance,
@@ -368,15 +455,18 @@ QVector<MemoryManager::MemoryRecord> MemoryManager::retrieve(const QString& rawQ
     for (const QString& w : words) {
         if (w.length() < 3)
             continue;
-        QString escaped = w;
-        escaped.replace(QLatin1Char('"'), QStringLiteral("\"\""));
+        // MATCH 右侧是 FTS5 查询语法：必须引号包裹成短语，否则 C++/CMake 词元
+        // （CMakeLists.txt / C++20 / Qt6::Widgets / utf-8）会被当语法解析而静默零召回
+        const QString term = ftsquery::quoteTerm(w);
+        if (term.isEmpty())
+            continue;
         const QString sql = QStringLiteral(
             "SELECT m.id,m.type,m.content,m.importance,m.status,m.created_at,m.updated_at,"
             "m.access_count,m.last_accessed_at, rank "
             "FROM memories_fts f JOIN memories m ON m.id=f.rowid "
             "WHERE memories_fts MATCH ? AND m.status='active' "
             "ORDER BY rank LIMIT 20");
-        for (const auto& row : m_db->query(sql, {escaped})) {
+        for (const auto& row : m_db->query(sql, {term})) {
             MemoryRecord r;
             r.id = row.value("id").toLongLong();
             r.type = row.value("type").toString();
