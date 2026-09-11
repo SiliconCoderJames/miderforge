@@ -80,8 +80,10 @@ endif()
 # UI 静态库：Qt Widgets 界面层（深色主题、六大面板、向导）
 add_library(mider_ui STATIC
     src/app/Theme.h            src/app/Theme.cpp
+    src/app/CommandPalette.h   src/app/CommandPalette.cpp
     src/app/ChatWidgets.h      src/app/ChatWidgets.cpp
     src/app/SessionView.h      src/app/SessionView.cpp
+    src/app/SidebarView.h      src/app/SidebarView.cpp
     src/app/AuditLogView.h     src/app/AuditLogView.cpp
     src/app/MemoryView.h       src/app/MemoryView.cpp
     src/app/SkillView.h        src/app/SkillView.cpp
@@ -130,9 +132,13 @@ add_executable(mider_tests
     tests/test_adjudication.cpp
     tests/test_embedding.cpp
     tests/test_theme.cpp
+    tests/test_chatwidgets.cpp
+    tests/test_commandpalette.cpp
+    tests/test_scheduler.cpp
 )
 target_link_libraries(mider_tests PRIVATE mider_core Qt6::Network doctest::doctest)
-# 主题测试需要 mider_ui（app/Theme）；QSS 生成是纯字符串构建，无需 QApplication 实例
+# 主题/聊天控件纯逻辑测试需要 mider_ui（app/Theme、app/ChatWidgets）；
+# formatSummary 是纯函数、QSS 是纯字符串构建，均无需 QApplication 实例
 target_link_libraries(mider_tests PRIVATE mider_ui)
 if(MSVC)
     # 崩溃栈回溯（tests/test_main.cpp 的 dbghelp 符号解析）

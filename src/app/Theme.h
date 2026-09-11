@@ -52,7 +52,10 @@ QFont monoFont(); // Consolas（代码/JSON/日志）
 
 // 状态色圆点的富文本片段（●绿=正常/●红=故障/●灰=未配置）
 QString coloredDot(const QColor& c);
-// 品牌标语（活动栏品牌区/状态栏共用）
+// 品牌标语（左栏品牌行/空态主视觉/状态栏共用）
 QString brandTagline();
+// 品牌签名渐变（品牌色 → 强调色）的 QSS 片段：左栏品牌线、空态主视觉、聚焦态共用。
+// 纯字符串构建，可脱离 QApplication 单测。x1/y1→x2/y2 取 0..1 表示方向。
+QString brandGradient(qreal x1 = 0.0, qreal y1 = 0.0, qreal x2 = 1.0, qreal y2 = 0.0);
 
 } // namespace miderforge::theme

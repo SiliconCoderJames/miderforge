@@ -17,6 +17,7 @@
 #include <QListWidget>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QSet>
 #include <QSpinBox>
 #include <QStackedWidget>
 #include <QTabWidget>
@@ -59,54 +60,92 @@ QString friendlyHealth(const QByteArray& resp) {
 }
 } // namespace
 
-SettingsDialog::SettingsDialog(ProviderManager* pm, EmailNotifier* mail,
+SettingsDialog::SettingsDialog(ProviderManager* pm, EmailNotifier* mail, const Panels& panels,
                                const std::function<void(int)>& applyPermissionMode,
                                QWidget* parent)
     : QDialog(parent), m_pm(pm), m_mail(mail), m_applyPermissionMode(applyPermissionMode) {
     setWindowTitle(QStringLiteral("Miderforge 设置"));
-    resize(780, 560);
+    resize(880, 620);
 
-    // 左导航（Codex/ZCode 设置页样式）
-    m_nav = new QListWidget(this);
-    m_nav->setFixedWidth(168);
-    m_nav->setIconSize(QSize(18, 18));
-    m_nav->setStyleSheet(QStringLiteral(
-        "QListWidget{background-color:%1;border:none;border-right:1px solid %2;font-size:10pt;outline:none;}"
-        "QListWidget::item{height:38px;padding-left:14px;border-radius:6px;margin:2px 6px;color:%3;}"
-        "QListWidget::item:hover{background-color:%4;}"
-        "QListWidget::item:selected{background-color:%5;color:white;font-weight:bold;}")
-                             .arg(theme::colors::window().name(), theme::colors::panel().name(),
-                                  theme::colors::textDim().name(), theme::colors::panel().name(),
-                                  theme::colors::accent().name()));
+    // ---- 左导航：返回 / 搜索 / 分组条目（对齐参考图信息架构） ----
+    m_navHost = new QWidget(this);
+    m_navHost->setFixedWidth(228);
+    m_navHost->setStyleSheet(QStringLiteral("background-color:%1;border-right:1px solid %2;")
+                                 .arg(theme::colors::window().name(), theme::colors::panel().name()));
+    m_navLay = new QVBoxLayout(m_navHost);
+    m_navLay->setContentsMargins(10, 10, 10, 10);
+    m_navLay->setSpacing(2);
 
-    const QStringList sections = {
-        QStringLiteral("通用"),
-        QStringLiteral("供应商"),
-        QStringLiteral("邮件"),
-        QStringLiteral("任务与预算"),
-        QStringLiteral("记忆与检索"),
-        QStringLiteral("蜂巢"),
-    };
-    for (const QString& s : sections)
-        m_nav->addItem(s);
-    connect(m_nav, &QListWidget::currentRowChanged, this, [this](int row) {
-        if (row >= 0)
-            m_pages->setCurrentIndex(row);
-    });
+    // 返回：设置是"从工作区进来的"，给出明确退路（Esc 也能关，但按钮更直观）
+    auto* backBtn = new QPushButton(QStringLiteral("←  返回工作区"), m_navHost);
+    backBtn->setFixedHeight(32);
+    backBtn->setCursor(Qt::PointingHandCursor);
+    backBtn->setStyleSheet(QStringLiteral(
+        "QPushButton{background:transparent;border:none;text-align:left;padding-left:6px;"
+        "color:%1;font-size:9.5pt;}"
+        "QPushButton:hover{background-color:%2;border-radius:6px;}")
+                               .arg(theme::colors::text().name(), theme::colors::panel().name()));
+    connect(backBtn, &QPushButton::clicked, this, &QDialog::reject);
+    m_navLay->addWidget(backBtn);
+    m_navLay->addSpacing(6);
 
+    // 搜索：设置项变多之后，靠翻找太慢
+    m_search = new QLineEdit(m_navHost);
+    m_search->setPlaceholderText(QStringLiteral("搜索设置…"));
+    m_search->setClearButtonEnabled(true);
+    m_search->setFixedHeight(30);
+    m_search->setStyleSheet(QStringLiteral(
+        "QLineEdit{background-color:%1;border:1px solid %2;border-radius:6px;"
+        "padding:2px 8px;font-size:9pt;color:%3;}"
+        "QLineEdit:focus{border-color:%4;}")
+                                .arg(theme::colors::panel().name(), theme::colors::line().name(),
+                                     theme::colors::text().name(), theme::colors::accent().name()));
+    connect(m_search, &QLineEdit::textChanged, this, [this](const QString& q) { filterNav(q); });
+    m_navLay->addWidget(m_search);
+    m_navLay->addSpacing(6);
+
+    m_emptyHint = new QLabel(QStringLiteral("没有匹配的设置项"), m_navHost);
+    m_emptyHint->setStyleSheet(QStringLiteral("color:%1;font-size:9pt;padding:8px 6px;")
+                                   .arg(theme::colors::textDim().name()));
+    m_emptyHint->setVisible(false);
+    m_navLay->addWidget(m_emptyHint);
+    m_navLay->addStretch(1);
+
+    // 导航条目与堆叠页在同一处依次登记：addNavEntry 返回的序号即随后 addWidget 的页序号，
+    // 杜绝"导航顺序 ≠ 页序"的错位（此前分两处写会重复登记分组与条目）
     m_pages = new QStackedWidget(this);
-    m_pages->addWidget(buildGeneralPage());
-    m_pages->addWidget(buildProviderPage());
-    m_pages->addWidget(buildMailPage());
-    m_pages->addWidget(buildBudgetPage());
-    m_pages->addWidget(buildMemoryPage());
-    m_pages->addWidget(buildHivePage());
+
+    addNavSection(QStringLiteral("基础设置"));
+    int p = addNavEntry(QStringLiteral("⚙"), QStringLiteral("常规"), QStringLiteral("基础设置"));
+    m_pages->addWidget(buildGeneralPage()); // p
+    p = addNavEntry(QStringLiteral("◑"), QStringLiteral("外观与主题"), QStringLiteral("基础设置"));
+    m_pages->addWidget(buildAppearancePage()); // p
+    p = addNavEntry(QStringLiteral("◈"), QStringLiteral("模型与供应商"), QStringLiteral("基础设置"));
+    m_pages->addWidget(buildProviderPage()); // p
+
+    addNavSection(QStringLiteral("Agent 能力"));
+    p = addNavEntry(QStringLiteral("◇"), QStringLiteral("记忆与检索"), QStringLiteral("Agent 能力"));
+    m_pages->addWidget(buildMemoryPage()); // p
+    p = addNavEntry(QStringLiteral("✧"), QStringLiteral("技能库"), QStringLiteral("Agent 能力"));
+    m_pages->addWidget(panels.skills ? panels.skills : new QWidget(this)); // p
+    p = addNavEntry(QStringLiteral("⧗"), QStringLiteral("任务与预算"), QStringLiteral("Agent 能力"));
+    m_pages->addWidget(buildBudgetPage()); // p
+    p = addNavEntry(QStringLiteral("✦"), QStringLiteral("蜂巢互联"), QStringLiteral("Agent 能力"));
+    m_pages->addWidget(buildHivePage()); // p
+
+    addNavSection(QStringLiteral("数据与统计"));
+    p = addNavEntry(QStringLiteral("▤"), QStringLiteral("任务队列"), QStringLiteral("数据与统计"));
+    m_pages->addWidget(panels.taskQueue ? panels.taskQueue : new QWidget(this)); // p
+    p = addNavEntry(QStringLiteral("▦"), QStringLiteral("审计日志"), QStringLiteral("数据与统计"));
+    m_pages->addWidget(panels.audit ? panels.audit : new QWidget(this)); // p
+    p = addNavEntry(QStringLiteral("✉"), QStringLiteral("邮件通知"), QStringLiteral("数据与统计"));
+    m_pages->addWidget(buildMailPage()); // p
 
     auto* stackRow = new QWidget(this);
     auto* lay = new QHBoxLayout(stackRow);
     lay->setContentsMargins(0, 0, 0, 0);
     lay->setSpacing(0);
-    lay->addWidget(m_nav);
+    lay->addWidget(m_navHost);
     lay->addWidget(m_pages, 1);
 
     auto* bottom = new QHBoxLayout();
@@ -128,8 +167,78 @@ SettingsDialog::SettingsDialog(ProviderManager* pm, EmailNotifier* mail,
     root->addWidget(stackRow, 1);
     root->addWidget(bottomW);
 
-    m_nav->setCurrentRow(0);
+    m_pages->setCurrentIndex(0);
+    m_currentPage = 0;
+    if (!m_navEntries.isEmpty() && m_navEntries[0].btn)
+        m_navEntries[0].btn->setProperty("navActive", true);
     loadHive();
+}
+
+// 分组标题：小号、暗色、非交互（参考图的 "Personal / Integrations / Coding" 同款）
+void SettingsDialog::addNavSection(const QString& title) {
+    auto* l = new QLabel(title, m_navHost);
+    l->setStyleSheet(QStringLiteral("color:%1;font-size:8pt;font-weight:bold;padding:10px 6px 2px 6px;")
+                         .arg(theme::colors::textDim().name()));
+    m_navLay->addWidget(l);
+    m_sectionLabels.push_back({title, l});
+}
+
+// 导航条目：勾选式按钮（含线性图标），点击切页
+int SettingsDialog::addNavEntry(const QString& icon, const QString& title, const QString& section) {
+    const int page = m_pages->count(); // 调用方随后 addWidget，序号在此预留
+    auto* btn = new QPushButton(QStringLiteral("%1   %2").arg(icon, title), m_navHost);
+    btn->setCheckable(true);
+    btn->setCursor(Qt::PointingHandCursor);
+    btn->setFixedHeight(32);
+    btn->setToolTip(title);
+    btn->setStyleSheet(QStringLiteral(
+        "QPushButton{background:transparent;border:none;border-radius:6px;text-align:left;"
+        "padding-left:10px;color:%1;font-size:9.5pt;}"
+        "QPushButton:hover{background-color:%2;}"
+        "QPushButton:checked{background-color:%3;color:white;}"
+        "QPushButton:focus{border:1px solid %3;}")
+                           .arg(theme::colors::text().name(), theme::colors::panel().name(),
+                                theme::colors::accent().name()));
+    connect(btn, &QPushButton::clicked, this, [this, page] { selectNav(page); });
+    m_navLay->addWidget(btn);
+    m_navEntries.push_back({title, icon, section, page, btn});
+    return page;
+}
+
+// 切页并把选中态收敛到唯一一个按钮（按钮不是 QButtonGroup 成员，需手动互斥）
+void SettingsDialog::selectNav(int pageIndex) {
+    if (pageIndex < 0 || pageIndex >= m_pages->count())
+        return;
+    m_pages->setCurrentIndex(pageIndex);
+    m_currentPage = pageIndex;
+    for (auto& e : m_navEntries) {
+        if (e.btn)
+            e.btn->setChecked(e.page == pageIndex);
+    }
+}
+
+// 设置搜索：按标题过滤条目；某分组下条目全被滤掉时隐藏该分组标题
+void SettingsDialog::filterNav(const QString& query) {
+    const QString q = query.trimmed();
+    QSet<QString> sectionsWithHit;
+    for (auto& e : m_navEntries) {
+        const bool hit = q.isEmpty() || e.title.contains(q, Qt::CaseInsensitive);
+        if (e.btn)
+            e.btn->setVisible(hit);
+        if (hit)
+            sectionsWithHit.insert(e.section);
+    }
+    for (const auto& s : m_sectionLabels) {
+        if (s.second)
+            s.second->setVisible(q.isEmpty() || sectionsWithHit.contains(s.first));
+    }
+    if (m_emptyHint)
+        m_emptyHint->setVisible(!q.isEmpty() && sectionsWithHit.isEmpty());
+}
+
+// 直达某页（命令面板 / 视图菜单用）
+void SettingsDialog::showPage(int pageIndex) {
+    selectNav(pageIndex);
 }
 
 QWidget* SettingsDialog::buildGeneralPage() {
@@ -144,20 +253,27 @@ QWidget* SettingsDialog::buildGeneralPage() {
     m_permCombo->setCurrentIndex(int(AppContext::instance().permissionMode));
     form->addRow(QStringLiteral("权限模式"), m_permCombo);
     form->addRow(QString(), new QLabel(
-        QStringLiteral("与 Codex/同源权限模型对齐；主窗口工具栏可随时切换，两侧始终同一状态。"), w));
+        QStringLiteral("与 Codex 同源权限模型对齐；Composer 底行可随时切换，两侧始终同一状态。"), w));
 
-    // 外观：主题皮肤（保存时写入 QSettings，重启完全生效）
+    auto* langLabel = new QLabel(QStringLiteral("简体中文（内置文案），随系统输入法。"), w);
+    form->addRow(QStringLiteral("语言"), langLabel);
+    return w;
+}
+
+// 外观与主题：从原「通用」页拆出（对齐参考图把 General / Appearance 分开的分组方式）
+QWidget* SettingsDialog::buildAppearancePage() {
+    auto* w = new QWidget(this);
+    auto* form = new QFormLayout(w);
+    form->setContentsMargins(20, 18, 20, 18);
+
     m_paletteCombo = new QComboBox(w);
     for (const auto& pal : theme::palettes())
         m_paletteCombo->addItem(QString::fromUtf8(pal.zh));
     m_paletteCombo->setCurrentIndex(theme::paletteIndex());
     form->addRow(QStringLiteral("主题皮肤"), m_paletteCombo);
     form->addRow(QString(), new QLabel(
-        QStringLiteral("切换主题后重启应用完全生效；活动栏 🎨 菜单可快速切换。"), w));
-
-    auto* langLabel = new QLabel(QStringLiteral("简体中文（内置文案），随系统输入法。"), w);
-    form->addRow(QStringLiteral("语言"), langLabel);
-    form->addRow(QString(), new QLabel(QStringLiteral("提示：供应商（模型与 API Key）在「供应商」页配置。"), w));
+        QStringLiteral("四套色板：品牌「熔炉·铁灰炉火」为默认，另有 Codex/VS/Claude 致敬皮肤。\n"
+                       "保存后**重启应用**完全生效；品牌行 ⌄ 菜单或 Ctrl+Shift+T 可快速切换。"), w));
     return w;
 }
 

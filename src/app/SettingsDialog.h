@@ -4,6 +4,9 @@
 #include "llm/ProviderManager.h"
 #include "notify/EmailNotifier.h"
 #include <QDialog>
+#include <QPair>
+#include <QString>
+#include <QVector>
 #include <functional>
 
 class QCheckBox;
@@ -11,18 +14,34 @@ class QComboBox;
 class QLabel;
 class QLineEdit;
 class QListWidget;
+class QPushButton;
 class QStackedWidget;
 class QSpinBox;
 class QTableWidget;
+class QVBoxLayout;
 
 namespace miderforge {
 
 class SettingsDialog : public QDialog {
     Q_OBJECT
 public:
-    // applyPermissionMode：与主窗口顶部权限下拉框同源，保存时经它生效（AppContext + 会话输入区双向同步）
-    SettingsDialog(ProviderManager* pm, EmailNotifier* mail,
+    // 功能面板（任务队列/技能库/记忆/供应商/审计日志）由 MainWindow 持有并传入：
+    // 它们按固定位置混排在设置页里，所以必须在构造时一次排定顺序——
+    // 若改成构造后追加，导航顺序与 QStackedWidget 页序会错位。
+    struct Panels {
+        QWidget* taskQueue = nullptr;
+        QWidget* skills = nullptr;
+        QWidget* memory = nullptr;
+        QWidget* providers = nullptr;
+        QWidget* audit = nullptr;
+    };
+
+    // applyPermissionMode：与 Composer 权限档同源，保存时经它生效
+    SettingsDialog(ProviderManager* pm, EmailNotifier* mail, const Panels& panels,
                    const std::function<void(int)>& applyPermissionMode, QWidget* parent = nullptr);
+
+    // 直达某页（命令面板 / 视图菜单用）
+    void showPage(int pageIndex);
 
 private slots:
     void onSave();
@@ -31,21 +50,42 @@ private slots:
 
 private:
     QWidget* buildGeneralPage();
+    QWidget* buildAppearancePage();   // 外观与主题（从原「通用」页拆出）
     QWidget* buildProviderPage();
     QWidget* buildMailPage();
     QWidget* buildBudgetPage();
     QWidget* buildMemoryPage();
     QWidget* buildHivePage();
 
-    void loadHive();                    // 读 config/hive.json（主密钥为 DPAPI 密文）
-    void saveHive();                    // 写回（密钥输入非空才覆盖密文）
+    // 左导航：分组标题 + 条目（对齐参考图的信息架构）
+    struct NavEntry {
+        QString title;
+        QString icon;       // 线性符号（不用 emoji，深色下渲染脏）
+        QString section;    // 所属分组标题
+        int page = -1;      // 对应堆叠页索引
+        QPushButton* btn = nullptr;
+    };
+    void addNavSection(const QString& title);
+    // 同时决定「导航条目」与「堆叠页序号」：先 addNavEntry 拿到 page，再由调用方 addWidget
+    int addNavEntry(const QString& icon, const QString& title, const QString& section);
+    void filterNav(const QString& query); // 设置搜索：按标题过滤并隐藏空分组
+    void selectNav(int pageIndex);
 
     ProviderManager* m_pm = nullptr;
     EmailNotifier* m_mail = nullptr;
     std::function<void(int)> m_applyPermissionMode;
 
-    QListWidget* m_nav = nullptr;
+    QWidget* m_navHost = nullptr;
+    QVBoxLayout* m_navLay = nullptr;
+    QLineEdit* m_search = nullptr;
+    QVector<NavEntry> m_navEntries;
+    QVector<QPair<QString, QLabel*>> m_sectionLabels; // 分组标题（过滤时整体隐藏）
+    QLabel* m_emptyHint = nullptr;                    // 搜索无结果提示
+    int m_currentPage = 0;
     QStackedWidget* m_pages = nullptr;
+
+    void loadHive();                    // 读 config/hive.json（主密钥为 DPAPI 密文）
+    void saveHive();                    // 写回（密钥输入非空才覆盖密文）
 
     // 通用
     QComboBox* m_permCombo = nullptr;

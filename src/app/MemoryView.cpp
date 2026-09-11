@@ -174,9 +174,11 @@ void MemoryView::onRejectPending() {
 
 void MemoryView::onSaveDetail() {
     if (m_showingL1) {
-        m_mem->saveL1(m_detail->toPlainText()); // 用户手改 L1（优先级最高）
+        m_mem->saveL1(m_detail->toPlainText()); // 用户手改 L1（同时登记为新的改写基准）
         QMessageBox::information(this, QStringLiteral("Miderforge"),
-                                 QStringLiteral("L1 核心记忆已保存。24 小时内 Agent 不会自动覆盖该文件。"));
+                                 QStringLiteral("L1 核心记忆已保存，并登记为新的改写基准："
+                                                "此后未被再改动时，Agent 收尾可继续按新知提炼改写；"
+                                                "一旦检测到再次手改即停止自动覆盖。"));
         reload();
         return;
     }

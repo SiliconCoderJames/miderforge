@@ -41,17 +41,30 @@ const QVector<Palette>& palettes() {
     return k;
 }
 
-int paletteIndex() {
-    static const int i = [] {
+namespace {
+// 色板索引缓存：初值从 QSettings 惰性读取（避免每次取色都查注册表）。
+// 必须可失效——setPaletteIndex 改的是 QSettings，若不刷新缓存，
+// 进程内后续 paletteIndex() 会一直返回旧值，界面看起来"改了没生效"。
+int& cachedPaletteIndex() {
+    static int idx = -1;
+    if (idx < 0) {
         QSettings s(QStringLiteral("Miderforge"), QStringLiteral("Miderforge"));
         const QString id = s.value(QStringLiteral("ui/palette")).toString();
         const auto& ps = palettes();
-        for (int k = 0; k < ps.size(); ++k)
-            if (id == ps[k].id)
-                return k;
-        return 0; // 默认品牌主题
-    }();
-    return i;
+        idx = 0; // 默认品牌主题
+        for (int k = 0; k < ps.size(); ++k) {
+            if (id == ps[k].id) {
+                idx = k;
+                break;
+            }
+        }
+    }
+    return idx;
+}
+} // namespace
+
+int paletteIndex() {
+    return cachedPaletteIndex();
 }
 
 void setPaletteIndex(int idx) {
@@ -60,6 +73,8 @@ void setPaletteIndex(int idx) {
         return;
     QSettings s(QStringLiteral("Miderforge"), QStringLiteral("Miderforge"));
     s.setValue(QStringLiteral("ui/palette"), QString::fromLatin1(ps[idx].id));
+    s.sync();
+    cachedPaletteIndex() = idx; // 立即生效（含测试与命令面板切换主题）
 }
 
 void apply(QApplication& app) {
@@ -247,6 +262,13 @@ QString coloredDot(const QColor& c) {
 
 QString brandTagline() {
     return QStringLiteral("锻造云脑 · 常驻本机");
+}
+
+QString brandGradient(qreal x1, qreal y1, qreal x2, qreal y2) {
+    // 品牌色 → 强调色。换肤后自动跟随当前色板（不写死 forge 橙）
+    return QStringLiteral("qlineargradient(x1:%1,y1:%2,x2:%3,y2:%4,stop:0 %5,stop:1 %6)")
+        .arg(x1).arg(y1).arg(x2).arg(y2)
+        .arg(palette().brand.name(), palette().accent.name());
 }
 
 } // namespace miderforge::theme

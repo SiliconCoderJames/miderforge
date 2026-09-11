@@ -1,11 +1,14 @@
 // 主窗口实现
 #include "app/MainWindow.h"
 #include "app/AuditLogView.h"
+#include "app/ChatWidgets.h"
+#include "app/CommandPalette.h"
 #include "app/FirstRunWizard.h"
 #include "app/MemoryView.h"
 #include "app/ProviderPanel.h"
 #include "app/SessionView.h"
 #include "app/SettingsDialog.h"
+#include "app/SidebarView.h"
 #include "app/SkillView.h"
 #include "app/TaskQueueView.h"
 #include "app/Theme.h"
@@ -17,17 +20,15 @@
 #include <QAction>
 #include <QActionGroup>
 #include <QApplication>
-#include <QButtonGroup>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QShortcut>
 #include <QStatusBar>
 #include <QStyle>
 #include <QSystemTrayIcon>
-#include <QToolButton>
-#include <QToolBar>
 #include <QVBoxLayout>
 
 namespace miderforge {
@@ -50,11 +51,13 @@ MainWindow::MainWindow(ProviderManager* pm, AgentLoop* loop, EventBus* events, D
 
     buildCentral();
     buildMenus();
-    buildToolbar();
+    buildShortcuts();
+    // 说明：原顶部 QToolBar 已拆除（对齐 Codex/ZCode 的极简顶栏）——
+    // 新建会话在左栏、权限档/供应商/模型档内联在 Composer 底行、停止在 Composer 按钮组
     buildStatusBar();
-    refreshProviderCombo();
     refreshStatusLabels();
     refreshL1Footer(); // 导航底栏 L1 占用用真实值，避免启动后恒显 0
+    restoreLastSession(); // 接着上次的会话继续（与 Claude/Codex 一致）
 
     // 今日 token 统计联动
     connect(m_loop, &AgentLoop::tokensChanged, this, [this](long long) { refreshStatusLabels(); });
@@ -138,117 +141,101 @@ void MainWindow::buildCentral() {
     lay->setContentsMargins(0, 0, 0, 0);
     lay->setSpacing(0);
 
-    // ---- 左侧活动栏（48px 图标栏，Claude/VS Code 式；会话列表在会话页内） ----
-    m_activityBar = new QWidget(central);
-    m_activityBar->setFixedWidth(48);
-    m_activityBar->setStyleSheet(QStringLiteral("background-color:%1;border-right:1px solid %2;")
-                                     .arg(theme::colors::window().name(), theme::colors::panel().name()));
-    auto* barLay = new QVBoxLayout(m_activityBar);
-    barLay->setContentsMargins(4, 8, 4, 8);
-    barLay->setSpacing(4);
+    // ---- 中央区：只有会话视图（功能面板都收进设置对话框，见下方注释） ----
+    m_stack = new QStackedWidget(central);
+    m_sessionView = new SessionView(m_db, m_loop, m_pm, m_stack);
+    m_stack->addWidget(m_sessionView); // 0 会话（唯一常驻页）
 
-    // 品牌区：logo + 渐变签名线（品牌色→强调色，Miderforge 品牌签名）
-    auto* brandLogo = new QLabel(QStringLiteral("🔨"), m_activityBar);
-    brandLogo->setAlignment(Qt::AlignCenter);
-    brandLogo->setToolTip(QStringLiteral("Miderforge · %1").arg(theme::brandTagline()));
-    barLay->addWidget(brandLogo);
-    auto* brandLine = new QFrame(m_activityBar);
-    brandLine->setFixedHeight(2);
-    brandLine->setStyleSheet(QStringLiteral(
-        "background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 %1,stop:1 %2);border-radius:1px;")
-                                 .arg(theme::colors::brand().name(), theme::colors::accent().name()));
-    barLay->addWidget(brandLine);
-    barLay->addSpacing(6);
+    // ---- 功能面板：依然构造出来，但归本窗口持有、由设置对话框借去当堆叠页 ----
+    // 决策：原先 5 个面板平铺在左栏导航里（任务队列/技能库/记忆/供应商/审计日志），
+    // 6 项文字常驻占了近 200px 且视觉重量压过会话列表。它们都是低频配置/监控页，
+    // 收进设置（左导航 + 堆叠页）后左栏只剩"会话"这一件事。
+    // 面板的父控件是本窗口而非对话框：对话框每次打开都新建，若让面板随它销毁，
+    // 每次关闭设置都会重建一遍面板（丢状态、白耗一次 DB 查询）。
+    m_taskQueuePage = new TaskQueueView(m_db, m_loop, this);
+    m_skillPage = new SkillView(m_skills, this);
+    m_memoryPage = new MemoryView(m_mem, m_adjudicator, this);
+    m_providerPage = new ProviderPanel(m_pm, this);
+    m_auditPage = new AuditLogView(m_events, this);
+    // 上述面板创建时默认可见：先藏起来，挂进设置对话框后由堆叠页决定显示
+    const QVector<QWidget*> panels = {m_taskQueuePage, m_skillPage, m_memoryPage,
+                                      m_providerPage, m_auditPage};
+    for (QWidget* w : panels)
+        w->hide();
 
-    const QList<QPair<QString, QString>> pages = {
-        {QStringLiteral("💬"), QStringLiteral("会话")},
-        {QStringLiteral("📋"), QStringLiteral("任务队列")},
-        {QStringLiteral("🧰"), QStringLiteral("技能库")},
-        {QStringLiteral("🧠"), QStringLiteral("记忆")},
-        {QStringLiteral("🔌"), QStringLiteral("供应商")},
-        {QStringLiteral("📜"), QStringLiteral("审计日志")},
-        {QStringLiteral("⚙️"), QStringLiteral("设置")},
-    };
-    m_pageNames = QStringList();
-    m_pageButtons = new QButtonGroup(this);
-    m_pageButtons->setExclusive(true);
-    for (int i = 0; i < pages.size(); ++i) {
-        auto* btn = new QToolButton(m_activityBar);
-        btn->setText(pages[i].first);
-        btn->setToolTip(pages[i].second + QStringLiteral("（Ctrl+%1）").arg(i + 1));
-        btn->setCheckable(true);
-        btn->setFixedSize(40, 38);
-        btn->setStyleSheet(QStringLiteral(
-            "QToolButton{border:none;border-radius:8px;font-size:14pt;color:%1;background:transparent;}"
-            "QToolButton:hover{background-color:%2;}"
-            "QToolButton:checked{background-color:%3;}")
-                               .arg(theme::colors::textDim().name(), theme::colors::panel().name(),
-                                    theme::colors::accent().name()));
-        m_pageButtons->addButton(btn, i);
-        barLay->addWidget(btn);
-        m_pageNames << pages[i].second;
-    }
-    connect(m_pageButtons, &QButtonGroup::idClicked, this, [this](int id) { switchNav(id); });
-    m_pageButtons->button(0)->setChecked(true);
+    // ---- 左栏：品牌 / 搜索 / 新建会话 / 最近会话 / 设置 + L1 ----
+    m_sidebar = new SidebarView(central);
+    connect(m_sidebar, &SidebarView::searchRequested, this, &MainWindow::openCommandPalette);
+    connect(m_sidebar, &SidebarView::newSessionRequested, this, [this] {
+        m_sessionView->newSession();
+        switchNav(0);
+    });
+    connect(m_sidebar, &SidebarView::settingsRequested, this, [this] { openSettings(); });
+    connect(m_sidebar, &SidebarView::sessionActivated, this, [this](qint64 id) {
+        // 切换被拒（任务执行中）时把高亮回弹到真实当前会话
+        if (!m_sessionView->requestSwitchSession(id))
+            m_sidebar->setCurrentSession(m_sessionView->currentSessionId());
+    });
+    // 会话列表与高亮由左栏维护，SessionView 只广播状态变化
+    connect(m_sessionView, &SessionView::sessionsChanged, this,
+            [this] { m_sidebar->loadSessions(m_db); });
+    connect(m_sessionView, &SessionView::currentSessionChanged, this,
+            [this](qint64 id) { m_sidebar->setCurrentSession(id); });
+    // 会话重命名 / 删除（右键菜单）：直接改库后刷新左栏
+    connect(m_sidebar, &SidebarView::sessionRenameRequested, this,
+            [this](qint64 id, const QString& title) {
+                if (!m_db)
+                    return;
+                m_db->execute(QStringLiteral("UPDATE sessions SET title=? WHERE id=?"), {title, id});
+                m_sidebar->loadSessions(m_db);
+                Toast::post(this, QStringLiteral("已重命名为「%1」").arg(title), Toast::Level::Success, 1800);
+            });
+    connect(m_sidebar, &SidebarView::sessionDeleteRequested, this, [this](qint64 id) {
+        if (!m_db)
+            return;
+        if (QMessageBox::question(
+                this, QStringLiteral("删除会话"),
+                QStringLiteral("确定删除该会话及其全部消息？此操作不可撤销。"),
+                QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes)
+            return;
+        // messages 与 sessions 一并删除：只删 sessions 会留下孤儿消息，session_search 仍能搜到
+        m_db->execute(QStringLiteral("DELETE FROM messages WHERE session_id=?"), {id});
+        m_db->execute(QStringLiteral("DELETE FROM sessions WHERE id=?"), {id});
+        if (m_sessionView->currentSessionId() == id)
+            m_sessionView->newSession(); // 删的是当前会话：退回未建档状态
+        m_sidebar->loadSessions(m_db);
+        Toast::post(this, QStringLiteral("会话已删除"), Toast::Level::Info, 1800);
+    });
 
-    // 活动栏底部：主题皮肤菜单 + L1 记忆占用进度条（数字放悬浮提示）
-    auto* themeBtn = new QToolButton(m_activityBar);
-    themeBtn->setText(QStringLiteral("🎨"));
-    themeBtn->setToolTip(QStringLiteral("主题皮肤（切换后重启应用完全生效）"));
-    themeBtn->setFixedSize(40, 30);
-    auto* themeMenu = new QMenu(themeBtn);
-    auto* themeGroup = new QActionGroup(themeMenu);
+    // 品牌行右侧 ⌄ 菜单：主题皮肤 / 设置 / 退出
+    auto* menu = new QMenu(m_sidebar->menuButton());
+    auto* themeGroup = new QActionGroup(menu);
     themeGroup->setExclusive(true);
     for (int k = 0; k < theme::palettes().size(); ++k) {
         const auto& pal = theme::palettes()[k];
-        auto* act = themeMenu->addAction(QString::fromUtf8(pal.zh));
+        auto* act = menu->addAction(QString::fromUtf8(pal.zh));
         act->setCheckable(true);
         act->setChecked(k == theme::paletteIndex());
         themeGroup->addAction(act);
-        connect(act, &QAction::triggered, this, [k] {
+        connect(act, &QAction::triggered, this, [this, k] {
             theme::setPaletteIndex(k);
-            QMessageBox::information(nullptr, QStringLiteral("Miderforge"),
-                                     QStringLiteral("主题已保存，重启应用后完全生效。"));
+            Toast::post(this, QStringLiteral("已切换到「%1」，重启应用后完全生效")
+                                  .arg(QString::fromUtf8(theme::palettes()[k].zh)),
+                        Toast::Level::Success);
         });
     }
-    themeBtn->setMenu(themeMenu);
+    menu->addSeparator();
+    QAction* settingsAct = menu->addAction(QStringLiteral("设置…"));
+    connect(settingsAct, &QAction::triggered, this, &MainWindow::openSettings);
+    QAction* quitAct = menu->addAction(QStringLiteral("退出"));
+    connect(quitAct, &QAction::triggered, qApp, &QApplication::quit);
+    m_sidebar->menuButton()->setMenu(menu);
 
-    m_l1BarLabel = new QLabel(QStringLiteral("L1 记忆：0 / 4000 tokens"), m_activityBar);
-    m_l1BarLabel->setVisible(false); // 仅作 tooltip 数据源
-    m_l1Bar = new QProgressBar(m_activityBar);
-    m_l1Bar->setRange(0, 4000);
-    m_l1Bar->setValue(0);
-    m_l1Bar->setTextVisible(false);
-    m_l1Bar->setFixedSize(36, 6);
-    m_l1Bar->setToolTip(QStringLiteral("L1 记忆：0 / 4000 tokens"));
-    m_l1Bar->setStyleSheet(QStringLiteral(
-        "QProgressBar{background-color:%1;border:none;border-radius:3px;}"
-        "QProgressBar::chunk{background-color:%2;border-radius:3px;}")
-                               .arg(theme::colors::panel().name(), theme::colors::accent().name()));
-    barLay->addStretch(1);
-    barLay->addWidget(themeBtn);
-    barLay->addWidget(m_l1Bar);
+    m_sidebar->loadSessions(m_db);
 
-    // ---- 中央堆叠区 ----
-    m_stack = new QStackedWidget(central);
-    m_sessionView = new SessionView(m_db, m_loop, m_stack);
-    m_stack->addWidget(m_sessionView); // 0 会话
-    m_stack->addWidget(new TaskQueueView(m_db, m_loop, m_stack)); // 1 任务队列（M2 实装）
-    m_stack->addWidget(new SkillView(m_skills, m_stack)); // 2 技能库（M3 实装）
-    m_stack->addWidget(new MemoryView(m_mem, m_adjudicator, m_stack)); // 3 记忆（M2 实装）
-    m_stack->addWidget(new ProviderPanel(m_pm, m_stack)); // 4 供应商（M4 实装）
-    m_stack->addWidget(new AuditLogView(m_events, m_stack)); // 5 审计日志（M1 实装）
-
-    lay->addWidget(m_activityBar);
+    lay->addWidget(m_sidebar);
     lay->addWidget(m_stack, 1);
     setCentralWidget(central);
-}
-
-QWidget* MainWindow::makePlaceholder(const QString& text) const {
-    auto* label = new QLabel(text, const_cast<MainWindow*>(this));
-    label->setAlignment(Qt::AlignCenter);
-    label->setStyleSheet(QStringLiteral("color:%1;font-size:12pt;").arg(theme::colors::textDim().name()));
-    return label;
 }
 
 void MainWindow::buildMenus() {
@@ -275,10 +262,30 @@ void MainWindow::buildMenus() {
     newTask->setToolTip(QStringLiteral("任务队列在 M2 里程碑实装"));
 
     QMenu* viewMenu = menuBar()->addMenu(QStringLiteral("视图"));
-    for (int i = 0; i < 7; ++i) { // 含第 7 项「设置」：对话框页，Ctrl+7 直达
-        QAction* go = viewMenu->addAction(m_pageNames.at(i));
-        go->setShortcut(QKeySequence(QStringLiteral("Ctrl+%1").arg(i + 1)));
-        connect(go, &QAction::triggered, this, [this, i] { switchNav(i); });
+    // 功能面板已收进设置对话框：这里改为「会话 + 6 个设置入口」，不再依赖 m_pageNames
+    //（m_pageNames 已废弃；此前 for(i<7) 读空列表会越界崩溃）
+    // page 序号对应 SettingsDialog 的堆叠页序（见其构造函数里 addNavEntry 的调用顺序）
+    struct ViewEntry { const char* title; int page; };
+    static const ViewEntry kViews[] = {
+        {"会话", 0},
+        {"设置 · 常规", 0},
+        {"设置 · 外观与主题", 1},
+        {"设置 · 模型与供应商", 2},
+        {"设置 · 记忆与检索", 3},
+        {"设置 · 任务队列", 7},
+        {"设置 · 审计日志", 8},
+    };
+    int shortcut = 1;
+    for (const auto& v : kViews) {
+        QAction* go = viewMenu->addAction(QString::fromUtf8(v.title));
+        go->setShortcut(QKeySequence(QStringLiteral("Ctrl+%1").arg(shortcut++)));
+        const int page = v.page;
+        connect(go, &QAction::triggered, this, [this, page] {
+            if (page == 0)
+                switchNav(0);
+            else
+                openSettingsAt(page);
+        });
     }
 
     QMenu* toolMenu = menuBar()->addMenu(QStringLiteral("工具"));
@@ -299,41 +306,130 @@ void MainWindow::buildMenus() {
     });
 }
 
-void MainWindow::buildToolbar() {
-    QToolBar* bar = addToolBar(QStringLiteral("main"));
-    bar->setMovable(false);
-    bar->setIconSize(QSize(18, 18));
+// 全局键盘交互：键盘优先，键盘上能做完主要动作（对齐 Codex/ZCode 的快捷键习惯）
+void MainWindow::buildShortcuts() {
+    auto add = [this](const QString& seq, auto fn) {
+        auto* sc = new QShortcut(QKeySequence(seq), this);
+        sc->setContext(Qt::WindowShortcut);
+        connect(sc, &QShortcut::activated, this, fn);
+    };
+    add(QStringLiteral("Ctrl+K"), [this] { openCommandPalette(); });          // 命令面板
+    add(QStringLiteral("Ctrl+L"), [this] { m_sessionView->focusInput(); });    // 聚焦输入框
+    add(QStringLiteral("Ctrl+F"), [this] { m_sidebar->focusSessionSearch(); }); // 搜会话
+    add(QStringLiteral("Ctrl+,"), [this] { openSettings(); });                 // 设置（同 mac 习惯）
+    add(QStringLiteral("Ctrl+Shift+T"), [this] {                               // 切换主题皮肤
+        const int n = theme::palettes().size();
+        theme::setPaletteIndex((theme::paletteIndex() + 1) % n);
+        // 换成浮层提示：切皮肤是低风险动作，弹模态框会打断手头操作
+        Toast::post(this, QStringLiteral("已切换到「%1」，重启应用后完全生效")
+                              .arg(QString::fromUtf8(theme::palettes()[theme::paletteIndex()].zh)),
+                    Toast::Level::Success);
+    });
+}
 
-    QAction* newSession = bar->addAction(QStringLiteral("＋ 新建会话"));
-    newSession->setShortcut(QKeySequence(QStringLiteral("Ctrl+N")));
-    connect(newSession, &QAction::triggered, this, [this] {
-        m_sessionView->newSession();
+// 命令面板（Ctrl+K）：会话 + 设置入口 + 动作
+void MainWindow::openCommandPalette() {
+    QVector<CommandPalette::Item> items;
+    // 1) 设置入口：功能面板与配置都在设置里，面板项直接直达对应页
+    const struct { const char* title; int page; } settingsEntries[] = {
+        {"设置 · 常规", 0},
+        {"设置 · 外观与主题", 1},
+        {"设置 · 模型与供应商", 2},
+        {"设置 · 记忆与检索", 3},
+        {"设置 · 技能库", 4},
+        {"设置 · 任务队列", 7},
+        {"设置 · 审计日志", 8},
+        {"设置 · 邮件通知", 9},
+    };
+    for (const auto& e : settingsEntries) {
+        CommandPalette::Item it;
+        it.kind = QStringLiteral("设置");
+        it.title = QString::fromUtf8(e.title);
+        it.actionId = 100 + e.page; // 100+ 段：设置页直达
+        items.push_back(it);
+    }
+    // 2) 会话（最近 100 条，与左栏同源）
+    if (m_db) {
+        const auto rows = m_db->query(QStringLiteral(
+            "SELECT id, title, updated_at FROM sessions ORDER BY updated_at DESC LIMIT 100"), {});
+        for (const auto& r : rows) {
+            CommandPalette::Item it;
+            it.kind = QStringLiteral("会话");
+            it.title = r.value("title").toString();
+            it.hint = QDateTime::fromSecsSinceEpoch(r.value("updated_at").toLongLong())
+                          .toString(QStringLiteral("MM-dd hh:mm"));
+            it.sessionId = r.value("id").toLongLong();
+            items.push_back(it);
+        }
+    }
+    // 3) 动作
+    const struct { const char* title; int id; } actions[] = {
+        {"新建会话", 1}, {"打开设置", 2}, {"切换主题皮肤", 3},
+        {"聚焦输入框", 4}, {"搜索会话", 5}, {"测试当前供应商连接", 6},
+    };
+    for (const auto& a : actions) {
+        CommandPalette::Item it;
+        it.kind = QStringLiteral("动作");
+        it.title = QString::fromUtf8(a.title);
+        it.actionId = a.id;
+        items.push_back(it);
+    }
+
+    CommandPalette dlg(this);
+    connect(&dlg, &CommandPalette::pageChosen, this, &MainWindow::switchNav);
+    connect(&dlg, &CommandPalette::sessionChosen, this, [this](qint64 id) {
         switchNav(0);
+        if (!m_sessionView->requestSwitchSession(id)) // 任务执行中会被拒，回弹高亮
+            m_sidebar->setCurrentSession(m_sessionView->currentSessionId());
     });
-    bar->addSeparator();
-
-    bar->addWidget(new QLabel(QStringLiteral(" 权限模式: "), bar));
-    auto* permCombo = new QComboBox(bar);
-    permCombo->addItems({QStringLiteral("Suggest"), QStringLiteral("Auto Edit"), QStringLiteral("Full Access")});
-    connect(permCombo, &QComboBox::currentIndexChanged, this, [this](int idx) {
-        applyPermissionMode(idx);
+    connect(&dlg, &CommandPalette::actionChosen, this, [this](int id) {
+        // 100+ 段 = 直达设置页（page = id-100，-1 为设置默认页）
+        if (id >= 100) {
+            openSettingsAt(id - 100);
+            return;
+        }
+        switch (id) {
+        case 1: m_sessionView->newSession(); switchNav(0); break;
+        case 2: openSettings(); break;
+        case 3: theme::setPaletteIndex((theme::paletteIndex() + 1) % theme::palettes().size());
+                Toast::post(this, QStringLiteral("已切换到「%1」，重启应用后完全生效")
+                                      .arg(QString::fromUtf8(
+                                          theme::palettes()[theme::paletteIndex()].zh)),
+                            Toast::Level::Success); break;
+        case 4: m_sessionView->focusInput(); break;
+        case 5: m_sidebar->focusSessionSearch(); break;
+        case 6: {
+            const ProviderConfig* p = m_pm->activeProvider();
+            QString err;
+            int ms = 0;
+            if (p && m_pm->testConnection(p->name, &err, &ms))
+                QMessageBox::information(this, QStringLiteral("Miderforge"),
+                                         QStringLiteral("连接正常：%1（%2 ms）").arg(p->name).arg(ms));
+            else
+                QMessageBox::warning(this, QStringLiteral("Miderforge"),
+                                     QStringLiteral("连接失败：%1").arg(err.isEmpty() ? QStringLiteral("未知原因") : err));
+            refreshStatusLabels();
+            break;
+        }
+        default: break;
+        }
     });
-    connect(m_sessionView, &SessionView::permissionModeChanged, this, [this, permCombo](int idx) {
-        QSignalBlocker blocker(permCombo);
-        permCombo->setCurrentIndex(idx);
-        refreshStatusLabels();
-    });
-    bar->addWidget(permCombo);
-    bar->addSeparator();
+    dlg.setItems(items);
+    dlg.exec();
+}
 
-    bar->addWidget(new QLabel(QStringLiteral(" 供应商: "), bar));
-    m_providerCombo = new QComboBox(bar);
-    connect(m_providerCombo, &QComboBox::currentIndexChanged, this, &MainWindow::onProviderComboChanged);
-    bar->addWidget(m_providerCombo);
-    bar->addSeparator();
-
-    m_stopAction = bar->addAction(QStringLiteral("■ 停止"));
-    connect(m_stopAction, &QAction::triggered, m_loop, &AgentLoop::cancel);
+// 启动即恢复最近一次会话：桌面常驻 Agent 通常是被反复打开的，
+// 每次都停在空白新会话上会让人以为记录丢了。没有历史时保持空态引导卡。
+void MainWindow::restoreLastSession() {
+    if (!m_db || !m_sessionView || !m_sidebar)
+        return;
+    const auto rows = m_db->query(
+        QStringLiteral("SELECT id FROM sessions ORDER BY updated_at DESC LIMIT 1"), {});
+    if (rows.empty())
+        return;
+    const qint64 id = rows.front().value("id").toLongLong();
+    if (m_sessionView->requestSwitchSession(id))
+        m_sidebar->setCurrentSession(id);
 }
 
 void MainWindow::buildStatusBar() {
@@ -345,109 +441,94 @@ void MainWindow::buildStatusBar() {
     sep->setStyleSheet(QStringLiteral("color:%1;").arg(theme::colors::line().name()));
     statusBar()->addWidget(sep);
 
-    m_statusModel = new QLabel(this);
+    // 只留 Composer/左栏没有的信息：模型与权限档分别由 Composer 的供应商/模型标签和
+    // 权限下拉承载，L1 占用在左栏底部——重复展示只会制造噪声
     m_statusTokens = new QLabel(this);
-    m_statusMode = new QLabel(this);
     m_statusQueue = new QLabel(this);
-    for (auto* l : {m_statusModel, m_statusTokens, m_statusMode, m_statusQueue}) {
+    for (auto* l : {m_statusTokens, m_statusQueue}) {
         l->setContentsMargins(8, 0, 8, 0);
         statusBar()->addWidget(l);
     }
     statusBar()->setStyleSheet(QStringLiteral("QStatusBar{background-color:%1;color:%2;}")
                                                       .arg(theme::colors::panel().name(), theme::colors::textDim().name()));
     connect(m_sessionView, &SessionView::queueCountChanged, this, [this](int n) {
+        m_queueCount = n;
         m_statusQueue->setText(QStringLiteral("队列: %1").arg(n));
     });
 }
 
 void MainWindow::refreshProviderCombo() {
-    QSignalBlocker blocker(m_providerCombo);
-    m_providerCombo->clear();
-    const ProviderConfig* active = m_pm ? m_pm->activeProvider() : nullptr;
-    for (const auto& cfg : m_pm->all()) {
-        // QComboBox 不渲染富文本：用纯文本圆点（状态色由状态栏的富文本圆点表达）
-        const QChar dot = cfg.configured ? QChar(0x25CF) : QChar(0x25CB); // ● / ○
-        m_providerCombo->addItem(QStringLiteral("%1 %2").arg(dot, cfg.name), cfg.name);
-    }
-    if (active) {
-        const int idx = m_providerCombo->findData(active->name);
-        if (idx >= 0)
-            m_providerCombo->setCurrentIndex(idx);
-    }
+    // 供应商下拉归属 Composer（SessionView）；此处转发，供设置对话框关闭后刷新
+    if (m_sessionView)
+        m_sessionView->refreshProviderCombo();
 }
 
 void MainWindow::applyPermissionMode(int idx) {
-    AppContext::instance().permissionMode = static_cast<PermissionMode>(idx);
-    m_sessionView->setPermissionMode(idx); // 与输入区下拉框双向同步
+    // 设置对话框改了权限档 → 同步到 Composer 输入区下拉（AppContext 由对方写入）
+    m_sessionView->setPermissionMode(idx);
     refreshStatusLabels();
 }
 
 void MainWindow::refreshStatusLabels() {
     const ProviderConfig* active = m_pm ? m_pm->activeProvider() : nullptr;
-    const QColor dotColor = !active ? theme::colors::textDim()
-                                    : (active->configured ? theme::colors::success() : theme::colors::error());
-    // 决策: M0 状态栏固定展示 main 档模型；M4 三档路由接入后由 Router 维护该标签
+    // 状态栏只显示 Composer/左栏没有的信息（模型由 Composer 的模型标签展示，权限档由权限下拉展示）。
+    // 这里仍维护 AppContext::activeModelLabel，因为其他面板会读它。
     if (active && active->configured) {
         AppContext::instance().activeModelLabel =
             QStringLiteral("%1·%2").arg(active->name, m_pm->modelForTier(*active, QStringLiteral("main")));
-    } else if (!active || !active->configured) {
+    } else {
         AppContext::instance().activeModelLabel.clear();
     }
-    m_statusModel->setText(
-        QStringLiteral("%1 %2").arg(theme::coloredDot(dotColor),
-                                    AppContext::instance().activeModelLabel.isEmpty()
-                                        ? QStringLiteral("未配置供应商")
-                                        : AppContext::instance().activeModelLabel));
     m_statusTokens->setText(
         QStringLiteral("今日 tokens: %1").arg(AppContext::instance().todayTokens.load()));
-    m_statusMode->setText(
-        QStringLiteral("模式: %1").arg(permissionModeName(AppContext::instance().permissionMode)));
-    m_statusQueue->setText(QStringLiteral("队列: 0"));
+    m_statusQueue->setText(QStringLiteral("队列: %1").arg(m_queueCount)); // 由 queueCountChanged 维护，勿硬写 0
 }
 
 void MainWindow::refreshL1Footer() {
-    if (!m_mem)
+    if (!m_mem || !m_sidebar)
         return;
-    const qint64 used = m_mem->l1Tokens();
-    m_l1BarLabel->setText(QStringLiteral("L1 记忆：%1 / 4000 tokens").arg(used));
-    m_l1Bar->setToolTip(m_l1BarLabel->text());
-    m_l1Bar->setValue(static_cast<int>(qBound<qint64>(qint64(0), used, qint64(4000))));
-    // >80% 变黄（规格：L1 接近上限预警）
-    m_l1Bar->setStyleSheet(used > 4000 * 8 / 10
-                               ? QStringLiteral("QProgressBar{background-color:%1;border:none;border-radius:3px;}"
-                                                "QProgressBar::chunk{background-color:%2;border-radius:3px;}")
-                                     .arg(theme::colors::panel().name(), theme::colors::warn().name())
-                               : QStringLiteral("QProgressBar{background-color:%1;border:none;border-radius:3px;}"
-                                                "QProgressBar::chunk{background-color:%2;border-radius:3px;}")
-                                     .arg(theme::colors::panel().name(), theme::colors::accent().name()));
+    // L1 占用进度条已迁入左栏底部（原活动栏底部 36px 宽挤成一坨）
+    m_sidebar->setL1Usage(m_mem->l1Tokens(), AppContext::instance().l1TokenLimit);
 }
 
 void MainWindow::switchNav(int index) {
-    if (index == kNavSettingsIndex) {
-        openSettings();
-        // 设置是对话框：活动栏回弹到会话页
-        if (m_pageButtons && m_pageButtons->button(0))
-            m_pageButtons->button(0)->setChecked(true);
+    // 左栏已不承载功能页导航；命令面板/菜单仍以索引跳到对应面板（走设置对话框）
+    if (index <= 0) {
+        m_stack->setCurrentIndex(0);
         return;
     }
-    m_stack->setCurrentIndex(index);
+    openSettingsAt(index);
 }
 
+// 无参版本：满足菜单/快捷键槽连接（param 版改名以避免与槽重载产生歧义）
 void MainWindow::openSettings() {
-    SettingsDialog dialog(m_pm, m_mail,
-                          [this](int idx) { applyPermissionMode(idx); }, this);
-    if (dialog.exec() == QDialog::Accepted) {
+    openSettingsAt(-1);
+}
+
+// 打开设置对话框并按需直达某一页。
+// 对话框本体由本窗口持有（m_settings）：它在构造时接收 5 个功能面板当堆叠页，
+// 每次打开都新建的话会反复重挂面板、丢掉面板内部状态（滚动位置、筛选条件）。
+// pageIndex < 0 = 打开默认页（通用）。
+void MainWindow::openSettingsAt(int pageIndex) {
+    if (!m_settings) {
+        SettingsDialog::Panels panels;
+        panels.taskQueue = m_taskQueuePage;
+        panels.skills = m_skillPage;
+        panels.memory = m_memoryPage;
+        panels.providers = m_providerPage;
+        panels.audit = m_auditPage;
+        m_settings = new SettingsDialog(m_pm, m_mail, panels,
+                                        [this](int idx) { applyPermissionMode(idx); }, this);
+    }
+    if (pageIndex >= 0)
+        m_settings->showPage(pageIndex);
+    if (m_settings->exec() == QDialog::Accepted) {
         refreshProviderCombo();
         refreshStatusLabels();
+        if (m_sessionView)
+            m_sessionView->refreshProviderCombo();
+        refreshL1Footer();
     }
-}
-
-void MainWindow::onProviderComboChanged(int index) {
-    if (index < 0 || !m_pm)
-        return;
-    const QString name = m_providerCombo->itemData(index).toString();
-    m_pm->setActive(name);
-    refreshStatusLabels();
 }
 
 } // namespace miderforge
