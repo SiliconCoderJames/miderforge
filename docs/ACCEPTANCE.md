@@ -53,6 +53,61 @@
 | 29 | http_fetch 同步执行于 GUI 线程（最长 15s 冻结） | 该工具默认全部档位需用户确认后才执行；迁移工作线程与工具层整体线程化（含 #30）同批处理 |
 | 30 | CommandTools 用嵌套 QEventLoop 等待进程 | 已加 ExcludeUserInputEvents 缓解输入事件重入；根治需把工具执行移出 GUI 线程，与 #29 同一 Roadmap 项 |
 
+### 第二轮自审新增：已修 / 已知边界（2026-09-10）
+
+本轮以"直接读运行时数据库 + 编译探针 + 复刻 FTS5 schema"方式复查，发现并**已修复**：
+
+| 缺陷 | 根因 | 修复 |
+|---|---|---|
+| L1 核心记忆自动改写**从未真正运行** | 写入基准只存在成员变量 `m_lastAgentWrite` 里，进程重启即丢失；而 `core.md` 只在首次为空时被写过一次 → 之后每次启动都判成"用户手建"，`l1UserEditedRecently()` 恒为 true | 基准改为持久化侧车文件 `core.md.agent-state.json`（内容 SHA-256 + 写入时刻），每次判定重读；新增 4 个单测覆盖"重启后允许改写/手改后保护/旧版无基准时保守保护/无文件不保护" |
+| `session_search` **永远返回空**却报成功 | `snippet(messages_fts, 2, …)` 列号越界；`messages_fts` 只有 1 列，SQLite 在 step 时返回 `SQLITE_RANGE`，被 `Database::query` 的 `while(step==SQLITE_ROW)` 静默吞掉 | 列号改 0；新增单测断言必须真正召回 2 条并带 `[...]` 高亮 |
+| 记忆检索对 C++/CMake 词元**静默零召回** | 用户词只做双引号转义就裸绑进 FTS5 `MATCH`，`CMakeLists.txt`/`C++20`/`Qt6::Widgets`/`utf-8` 全被当查询语法而报错 | 新增 `ftsquery::quoteTerm/orTerms`（引号包裹 + 内部 `"` 翻倍），`MemoryManager` 与 `session_search` 统一改用；新增单测覆盖上述四类词元 |
+| 旧记忆被归档而**新知从未写入**（净知识丢失） | 一致性失效归档**未**以"L1 改写成功"为前提 | 归档改为仅在 L1 改写成功（`saveL1` 返回 true）后执行；未改写时记 `memory_invalidate_skipped` 事件与日志 |
+| 附件选择后发送 → **GUI 永久卡死** | `while (findChild()) deleteLater();` 只投递 DeferredDelete，不会同步移除子对象 → 同一指针上无限空转 | 先 `findChildren` 一次性取全再逐个 `deleteLater()` |
+| 附件**在空闲发送时被丢弃** | 空闲路径调用 `startGoal(text)` 而非 `startGoal(goal)`，丢掉 `【上下文文件】` 段 | 改传 `goal` |
+| 故障转移 + 冷却回切是**不可达死代码** | `m_transportFailures` 在 `beginTask` 归零，而第一次传输类失败必定把任务判失败，单任务内攒不到 2 次 | 改为每任务至多自动转移一次（`m_failedOver` 兜底防来回切），备胎也失败才判失败；注释与 README 口径同步（ChatClient 内含 2 次重试，实际 HTTP 尝试 3 次） |
+| `writeSkill` 落库失败仍报成功 | 两次 `m_db->execute` 返回值被忽略，`return true` 恒定 | 检查返回值并复查行是否命中，失败置 `err` 返回 false（避免 SKILL.md 落盘却永不进提示词） |
+
+**已知边界（本轮确认，暂未改）**：
+
+| 事项 | 说明与建议 |
+|---|---|
+| 命令白名单是任意代码执行通道 | `cmake`/`ninja`/`msbuild`/`git`/`cl` 在名单内，而 `cmake -P script.cmake`、`git` 的 `!` 别名均可执行任意脚本 → 绕过永不解禁清单、工作区写边界与命令黑名单。建议：拒绝脚本执行类子命令（`-P`/`--script`/`-c`）、拒绝 git `!` 别名，或改为"白名单子命令 + 参数模式校验"。**未改以避免破坏现有构建工作流。** |
+| 工作区边界只做字符串比较 | `pathInWorkspace` 用 `QDir::cleanPath` 归一，不解析 reparse point；工作区内的 junction/symlink 指向区外即可越界读写（实测已复现）。建议加 `canonicalFilePath` 解析后二次判定。 |
+| `read_file` 不设工作区边界 | 三档均为 `Allowed`，`hardDenyReason` 对读只查文件名黑名单；文件名无害的敏感文件（浏览器凭据库、邮件库等）在任意档位可读。建议明确产品口径：要么加读边界，要么在 SECURITY.md 如实声明"读取不限于工作区"。 |
+| 嵌入通道在 GUI 线程且每轮调用 | `EmbeddingClient` 自述"仅允许工作线程调用"，但全项目只有 ChatClient 的 curl 线程；启用嵌入后每轮检索含阻塞 DNS + HTTPS（各 20s 上限）。与 #29/#30 同批线程化。 |
+| 向量索引无模型/维度来源标识 | `memories` 表无 `embedding_model` 列，换嵌入模型后新旧向量混用且静默劣化（仅维度不符时跳过）。建议加列并触发重嵌入。 |
+
+### 第三轮自审：发现并修复的缺陷（2026-09-10）
+
+本轮以「两个独立审计 + 回归测试」方式复查，发现并**已修复**（每条都补了回归测试或明确验证方式）：
+
+| 缺陷 | 根因 | 修复 |
+|---|---|---|
+| **任务引擎永久僵死**（严重） | `onStreamFailed` 里清 `m_running` 的语句全在 `if (!m_failedOver)` 块内。"主供应商失败→转移成功→备胎也失败"这条路径因 `m_failedOver` 已为 true 而整块跳过 → 已 `emit loopFailed`、任务行已判失败，但 `isRunning()` 恒为 true：新目标只进待办队列、`beginTask` 拒绝、`Scheduler::tick` 永远早退，**只能重启进程恢复** | 把 `m_running = false` 提到块外无条件执行 |
+| **会话右键菜单悬垂读取**（严重） | `showSessionMenu` 里 `setCurrentItem(item)` 会**同步**触发 `currentItemChanged → sessionActivated → switchToSession → sessionsChanged → loadSessions() → clear()`，而 `clear()` 是 `qDeleteAll(item)` —— 随后继续用 `item` 读 id/toolTip | ① `sessionActivated` 改 `Qt::QueuedConnection`（避免在 QListWidget 处理 currentChanged 的过程中改模型）；② 菜单期间置 `m_menuOpen` 禁止重建列表；③ **不再调用 `setCurrentItem`**，进菜单前先拷贝 id/标题，菜单返回后按 id 重新查找存活条目 |
+| **删除当前会话留下孤儿消息** | `newSession()` 先 `cancel()` 再置 `m_currentSessionId = -1`；而 `cancel()` 在"等待授权/已暂停"两条路径上**同步**发 `loopFinished` → `persistMessage` 用**已被删除的** session_id 插入 assistant 消息（外加 FTS 行）→ `session_search` 永远搜得到、UI 永远够不着 | `newSession()` 里把身份作废提到 `cancel()` **之前** |
+| **恢复的中断任务卡在「排队中」永不启动** | 崩溃恢复执行 `UPDATE ... SET status='queued'`，但会话路径建的 `tasks` 行 `scheduled_at` 为 **NULL**；SQL 里 `NULL = 0` 与 `NULL <= ?` 均求值为 NULL（非真）→ `tick()` 筛选永远匹配不到该行 | 恢复语句同时 `scheduled_at=COALESCE(scheduled_at, 0)`；`tick()` 查询补 `scheduled_at IS NULL`；补 SQL 语义单测 |
+| **失败的命令被当成成功**（连锁影响） | `run_command` 把成败只写在结果信封里、不设 `*err`，而 `ToolRegistry::ExecResult::ok == err.isEmpty()` → 编译失败被判为"调用成功"：卡片显示 ✓，且 `recordToolSuccess()` 每次重置同因失败计数 → **同因失败熔断与升档对最容易失败的工具永不生效** | `CommandTools` 失败时设置 `*err`（超时/取消/崩溃/退出码），信封保留 |
+| **修上一行时暴露的连带问题** | `ToolRegistry` 失败时直接 `text = "错误：" + err`，会**丢掉 handler 返回的信封** → 模型只看到"命令退出码 1"、拿不到 `output` 里的编译报错，把可自愈的失败变成不可自愈 | 失败时保留正文并前置错误说明；补单测断言信封仍在 |
+| **手动重跑谎报成功** | `rerunTool` 丢弃 `ExecResult::ok`，UI 无条件 `setSucceeded()` + Toast「已重跑」 | 失败时回传 `failed`，卡片显示 ✗；Toast 改为不替用户下结论的「重跑未成功」 |
+| **重跑继承上一任务的取消令牌** | 任务"流式中取消"时 `onStreamFinished` 的 aborted 分支直接判停且**不消费**取消令牌，令牌残留 true → 手动重跑被工具入口快检拦下，报「已被用户取消」 | `rerunTool` 入口先 `consumeToolCancel()` |
+| 左栏会话高亮每次重载后丢失 | `loadSessions()` 用 `QSignalBlocker` + `clear()` 重建列表后无人恢复选中，而它在**每次写消息**时都会被调用 | 记住 `m_currentId`，重建后据此恢复高亮 |
+
+**第三轮确认但未修（留作 Roadmap，均有明确触发场景）：**
+
+| 事项 | 说明与建议 |
+|---|---|
+| 工具批遇权限确认会丢掉后续调用 | assistant 消息带 N 个 `tool_calls`，遇 `NeedsConfirm` 即在该轮 `return`，索引 i 之后的调用既不执行也不补 `role:"tool"` 结果 → 严格厂商因配对不符返回 400，宽松厂商也丢失那些调用的结果。建议：先执行整批已放行的，确认块统一后置，并为被跳过的调用补一条"因等待授权未执行"的结果 |
+| 每日重复任务失败后不再排期 | `Scheduler` 只接 `loopFinished`，失败路径发的是 `loopFailed` → 每日任务失败一次即永久停摆；且失败路径不清 `m_runningTaskId`，之后任意无关任务完成会用**过期 id** 再插一条"明天"行，导致重复膨胀 |
+| `memory_write` 被归类为 ReadFile | 三档权限**均自动放行、从不弹确认卡**（`write_file` 在 Suggest 档反而要确认），而其内容会被注入此后每次 system prompt，且 `memoryWriteApproval` 默认关闭 → 建议单独归类并默认需确认 |
+| 0 行 UPDATE/DELETE 报成功 | 全仓无 `sqlite3_changes()`：`memory_write replace/remove` 对不存在的 id 回 `"已改写"/"已废弃"`；`archiveMemories` 返回 `ids.size()` 而非真实影响行数（还被写进 `memory_invalidate` 事件） |
+| 技能成功率恒为 100% | `recordUsage(..., true, ...)` 把 success 写死，`<30% 自动标记待审查` 成为不可达分支，`SkillView` 成功率/平均轮次统计失去意义 |
+| 排队目标可能落到别的会话 | `popQueueIfIdle` 用 500ms `singleShot` 延迟启动，已出队的目标无人拥有；这 500ms 内切换/新建会话，目标会被写进新会话 |
+| `write_file` 不校验写入结果 | `f.write()` 返回值被忽略，短写/磁盘满仍报「写入成功 +N/−M」 |
+| 多语句写无事务 | 删除会话的 `messages`+`sessions`、`persistMessage` 的插入+更新时间戳、`TaskQueueView` 的任务+审计事件（且事件 `task_id` 硬编码 0，该任务时间线永远查不到自己的入队事件） |
+| `core.md` 被清空后每次启动被重置 | `main.cpp` 在 `loadL1().isEmpty()` 时写入出厂四节模板，绕过 L1 手改保护：用户故意清空 L1 后重启会被重置，并重写基准使 Agent 恢复覆盖 |
+
 同时记录两条锁层级/线程纪律约束（防止后续扩展引入回归）：
 - **锁顺序**：`EventBus::s_mutex → Database::m_writeMutex`，任何代码不得反向嵌套（EventBus.cpp / Database.h 注释）。
 - **AppContext**：`todayTokens` 已原子化；其余成员仍约定 GUI 线程读写，引入工作线程前需整体审查（AppContext.h 注释）。
@@ -88,6 +143,8 @@
 
 - [x] 品牌「熔炉·铁灰炉火」默认主题 + codex/zcode/claude 三致敬皮肤（QSettings 持久化；活动栏 🎨 菜单与设置→通用页切换，重启完全生效）；活动栏品牌区 🔨 + 品牌色→强调色渐变签名线；状态栏品牌签名「Miderforge · 锻造云脑·常驻本机」；106 处取色点迁移 colors:: 实时函数（主题纯函数单测 + 实机 UIA 结构取证：7 图标按钮/变更面板/会话面板）(2026-09-10)
 - [x] Codex 要素：DiffUtil 行级 diff（单测）→ write_file 覆盖时 +N/−M 统计与 unified 正文进结果 envelope；工具卡 diff 逐行着色（+绿/−红/@@品牌色）；会话页右侧「变更文件」面板（路径归档/计数徽标/点击弹窗看 diff，随新任务/切会话清空）；Composer 📎 附件上下文（chips 可删，发送并入目标文本）（实机 UIA 取证「变更文件（0）」面板呈现）(2026-09-10)
+      ⚠️ 2026-09-10 自审修正：本项此前标 ✅ 但**实际不可用**——① chips 清空用 `while(findChild()) deleteLater();` 不终止，选附件后发送会让 GUI 100% CPU 永久卡死；② 空闲发送走 `startGoal(text)` 丢掉 `【上下文文件】` 段，附件路径从未传给 Agent。两处均已修复（见下方第二轮自审表），**GUI 端到端仍需人工复核**。
 - [x] Hermes 记忆：memory_write 三动作（add 查重/replace/remove + 500 字上限 + save/skip 策展门拒收清单转储）；write_approval 审批门（暂存 pending → 记忆页「⏳ 待审」批准/拒绝）；isSafeMemoryContent 安全扫描（不可见 Unicode 逐字符判定 + 中英注入词面，单测）；session_search（messages FTS5 trigram + 触发器三件套，snippet 工具）；L1 注入升级（用量头部 + § 分条，renderL1ForPrompt 单测）(2026-09-10)
+      ⚠️ 2026-09-10 自审修正：`session_search` 此前**永远返回空**（`snippet` 列号越界 2 → 应为 0，错误被静默吞掉），已修复并补单测；`isSafeMemoryContent` 覆盖范围小于其注释所述（**未含**变体选择符 U+FE00–FE0F / U+E0100–E01EF 与方向隔离符 U+2066–2069），注释口径已按实际收窄，补齐待 Roadmap。
 - [ ] 发一条真实任务人工复核：会话建档/消息入库/变更树回填/diff 弹窗/memory_write 全链路（需真实 API Key）
 - [ ] 主题皮肤切换后的视觉人工复核（本会话截屏不可靠；重启后观察炉火橙主色调）

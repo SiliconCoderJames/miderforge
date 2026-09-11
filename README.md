@@ -102,7 +102,7 @@ build\Release\miderforge.exe
 在**源码根目录**执行 `ctest --preset win64-release`（预设自动定位构建目录）；也可直接运行 `build\Release\mider_tests.exe`。
 
 **Q：配置和数据存在哪？如何完全重置？**
-全在 `%APPDATA%\Miderforge`（配置、SQLite 数据库、DPAPI 加密的 API Key）；删除该目录即恢复出厂，仓库目录内不落任何运行时数据。
+配置、SQLite 数据库、DPAPI 加密的 API Key 与记忆/技能文件都在 `%APPDATA%\Miderforge\Miderforge`（Qt `AppDataLocation` 会同时拼接组织名与应用名，两者都是 `Miderforge`，故为两层同名目录）；主题皮肤由 QSettings 存于注册表 `HKCU\Software\Miderforge\Miderforge`。要完全恢复出厂：删除该数据目录**并**清理上述注册表键，仓库目录内不落任何运行时数据。
 
 ## 📚 文档
 
@@ -157,22 +157,26 @@ Miderforge/
 
 | 里程碑 | 内容 | 状态 |
 |:---:|---|:---:|
-| **M0** | 通信管道：SSE 流式 / 双供应商直连 / 工具往返 / 断线重试 | ✅ |
-| **M1** | Agent 循环 + 7 工具 + 三档权限 + Windows 沙箱 + 审计日志 | ✅ |
-| **M2** | SQLite 四表 + FTS5 分层记忆 + 任务队列 | ✅ |
-| **M3** | 技能库 + 自沉淀闭环 | ✅ |
-| **M4** | 三档路由 + 故障转移 + 托盘 + 邮件通知 | ✅ |
-| **M4.5** | 记忆分层强化：一致性失效 / L1 容量纪律 / 增量 token 记账 / L2 淘汰评分化 / 跨层预取 | ✅ |
-| **M5** | 中断分级：四级中断模型（系统/熔断/用户/操作级）、暂停恢复、取消令牌传导、checkpoint 续跑 | ✅ |
-| **M6** | 生态互通：L3 语义检索 ✅（FTS5 + 向量 RRF 混合，随 zhipu Key 开箱即用）+ [AgentHive](https://github.com/SiliconCoderJames/AgentHive) 蜂巢接入（技能市场 / 共享知识库 / 用户记忆 / Token 观测，仅 127.0.0.1）🚧 | 🚧 进行中 |
+| **M0** | 通信管道：SSE 流式 / 双供应商直连 / 工具往返 / 断线重试 | ✅ 单测覆盖（真实 Key 端到端待复核） |
+| **M1** | Agent 循环 + 9 工具 + 三档权限 + Windows 沙箱 + 审计日志 | ✅ 单测覆盖（真实 Key 端到端待复核） |
+| **M2** | SQLite 四表 + FTS5 分层记忆 + 任务队列 | ✅ 单测覆盖（真实 Key 端到端待复核） |
+| **M3** | 技能库 + 自沉淀闭环 | ✅ 单测覆盖（真实 Key 端到端待复核） |
+| **M4** | 三档路由 + 故障转移 + 托盘 + 邮件通知 | ✅ 单测覆盖（SMTP / 故障转移待人工验证） |
+| **M4.5** | 记忆分层强化：一致性失效 / L1 容量纪律 / 增量 token 记账 / L2 淘汰评分化 / 跨层预取 | ✅ 单测覆盖（真实 Key 端到端待复核） |
+| **M5** | 中断分级：四级中断模型（系统/熔断/用户/操作级）、暂停恢复、取消令牌传导、checkpoint 续跑 | ✅ 单测覆盖（GUI 交互待人工验证） |
+| **M6** | 生态互通：L3 语义检索 ✅（FTS5 + 向量 RRF 混合，需在设置→供应商页显式启用嵌入）｜[AgentHive](https://github.com/SiliconCoderJames/AgentHive) 蜂巢接入 📋 仅完成设置页与连通性探测，其余待实现 | 🚧 进行中 |
 
-> 单元测试 85 个用例（doctest，只依赖 mider_core、可完全脱离 GUI 运行）全部通过。涉及真实 API Key / SMTP 授权码的端到端项请在配置后自行复核，明细见 [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md)。
+> ⚠️ **验证状态说明（请务必阅读）**：上表 ✅ 表示**代码与单元测试层面已完成**，但除单元测试外的端到端链路（真实大模型 Key 下的完整任务闭环、SMTP 邮件、故障转移、托盘通知）**尚未逐条实测**——明细见 [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md) 中留空的验收项。首次配置 Key 后建议先跑一个小任务自行复核。
+
+> 单元测试 107 个用例 / 554 项断言（doctest，只依赖 mider_core、可完全脱离 GUI 运行）全部通过——实测 `mider_tests.exe` 与 `ctest --preset win64-release` 均为全绿。涉及真实 API Key / SMTP 授权码的端到端项请在配置后自行复核，明细见 [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md)。
 
 ## 🐝 同作者姊妹项目：AgentHive
 
 Miderforge 是一只**单体的蜜蜂**。而当你桌面上同时跑着 Claude Code、Codex CLI、Cursor 等多个 AI Agent 时，它们彼此并不认识：各自记笔记、重复踩坑、反复问你同样的问题、无法互相委托任务。同作者的姊妹项目 [**AgentHive**](https://github.com/SiliconCoderJames/AgentHive)（本地多 Agent 协作平台）就是它们的**蜂巢**——纯本地运行，服务只监听 `127.0.0.1:8787`，无账号、无云依赖，全部数据就是一个本机 SQLite 文件；与 Miderforge 同款技术栈（C++20 / Qt 6 / SQLite WAL + sqlite-vec），同一作者维护。
 
-蜂巢提供七类共享能力：
+> **当前实现状态（请勿误读）**：Miderforge 侧**只完成了设置页与连通性探测**——设置→蜂巢页可填写地址/Agent 名称/主密钥（DPAPI 加密），并可对 `127.0.0.1:8787` 的 `/api/health` 做一次握手测试；`config/hive.json` 目前**没有任何运行时组件读取**，下方能力与对接均为**规划**，尚未打通。AgentHive 侧的能力请以其自身仓库为准。相关规划见 Roadmap M6。
+
+蜂巢规划提供七类共享能力：
 
 | 模块 | 作用 |
 |---|---|
@@ -184,9 +188,9 @@ Miderforge 是一只**单体的蜜蜂**。而当你桌面上同时跑着 Claude 
 | 📊 Token 观测 | 跨 Agent 用量按周聚合 + 80% / 95% / 超限三级告警（仅观测，不限制） |
 | 🧾 全程审计 | 所有操作留痕可回溯，过期记录自动清理，支持备份恢复 |
 
-Miderforge 的单体资产与蜂巢模块一一对应（打通规划见 Roadmap M6）：
+**规划中的**单体资产与蜂巢模块对应关系（Roadmap M6，尚未实现）：
 
-| Miderforge 单体资产（本地私有） | 接入蜂巢后（跨 Agent 共享） |
+| Miderforge 单体资产（本地私有） | 规划：接入蜂巢后（跨 Agent 共享） |
 |---|---|
 | 🧰 技能库 `SKILL.md` | 注册进技能市场，被 Claude Code / Codex / Cursor 检索与调用 |
 | 🧠 L2 会话摘要 / L3 档案 | 任务收尾沉淀进共享知识库，关键词 + 语义双检索命中 |
@@ -194,7 +198,7 @@ Miderforge 的单体资产与蜂巢模块一一对应（打通规划见 Roadmap 
 | 📊 增量 token 记账 | 上报蜂巢周用量观测，多 Agent 汇成一张图 |
 | 📋 任务队列 | 接收其他 Agent 委派的 note / question / task，异步完成 |
 
-接入对任何能发 HTTP 请求的 Agent 开放，三步：
+规划中的接入步骤（对任何能发 HTTP 请求的 Agent 开放；Miderforge 自身尚未实现）：
 
 1. `agent-cli register` 注册蜂巢身份（主密钥仅首次注册时使用）；
 2. 把磨熟的 `SKILL.md` 方案注册进蜂巢技能市场，其他 Agent 检索后可直接调用；
