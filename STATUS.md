@@ -116,6 +116,44 @@
 - 证据：修复后对抗 30/30、单测 20/20 连续压测全绿；全量 \`ctest --preset win64-release\`
   4/4 Passed 连续两轮。
 
+## P1 持久化投毒防护 + 对抗资产固化
+
+### P1-5 三场景（src 接线 + tests/adversarial/PersistencePoisoningTest.cpp，
+ctest 项 `adversarial.persistence_poisoning`，4 用例 / 71 断言）
+- a) L1 收尾改写筛查：`MemoryManager::l1RewriteSuspicious`（外发 URL + 六类凭据特征：
+  sk- 前缀/AKIA/Bearer/32 位十六进制/40 位基地串/api_key= 形态）命中即拒绝落盘（旧 L1 原样），
+  记 `memory_rewrite_flagged`（actor=agent / authorizer=memory_guard / target=core.md /
+  operation=l1_rewrite / outcome=blocked / reason + **新旧 diff 摘要** `l1DiffSummary`：
+  字节/行数、±行统计、新增首行样本）；一致性失效跳过原因同步扩了 `poisoned` 口径。
+- b) 技能固化门槛：AgentLoop 计数本任务越界/拒绝事件（自动执行拒绝、确认卡用户拒绝、
+  手动重跑拒绝三处接线），收尾时"成功但越界"→ 不提案、记 `skill_solidify_denied`
+  （authorizer=skill_guard，含 boundary_denies 计数）；干净任务照常 skill_gen + 提案。
+- c) failover 权限联动：`switchToFailover` 成功后 Full Access 自动降 Auto Edit，
+  记 `permission_downgrade_on_failover`（actor=system，outcome=full_access->auto_edit）。
+- 反过度封锁断言：正常中文开发笔记（cmake/ctest 命令行等）不触发筛查；emoji（增补平面
+  代理对）放行口径沿用；干净任务的固化路径不受门槛影响（skill_gen 正常发出）。
+- 证据：新套件单独压测 **10/10**；端到端断言物理结果——core.md 磁盘内容与拦截前逐字节一致、
+  evil-skill 目录不存在、权限档真降为 AutoEdit。
+
+### P1-4 对抗资产固化
+- CONTRIBUTING.md 新增硬约束：`tests/adversarial/` 用例不许删、不许 skip、
+  `ctest -N` 必须全量可见；安全行为变更必须带对抗用例。
+- 现状：4 个对抗套件全部 `ctest -N` 可见（workspace_boundary / read_channel /
+  command_whitelist / persistence_poisoning），名字一律含 adversarial。
+
+### P1-6 SECURITY-CRITICAL.txt
+- 仓库根入库 16 项安全关键文件（权限门/真实路径/文件与命令工具/投毒筛查/审计双写/
+  NetGuard/DPAPI/模板配置/tests/adversarial/），每项附理由；CONTRIBUTING.md 同步两条
+  规则：触及清单须人工 review、清单只许追加不许移出。
+
+### P1 验证与遗留
+- 全量 `ctest --preset win64-release` → **5/5 Passed**（unit 12s + 4 对抗套件 17.5s）。
+- 遗留 / 待裁决：
+  - failover 降级后设置页组合框在下次打开时才显示新值（AppContext 非 QObject，
+    无信号可订阅；改 QObject 加 signal 属跨层重构，留 Roadmap）；
+  - l1RewriteSuspicious 的凭据正则刻意保守（高置信形态），若现误杀再按例收窄；
+  - P1 期间新增放行：无（白名单与拒绝面净收紧）。
+
 ## 地图确认时已定的方案（你已确认"地图无误"）
 - P0-2：把应用自身数据目录（config/ DPAPI 密文、miderforge.db、memory/、logs/、miderforge.lock）
   加入读取侧保护区；read_skill 走 skills/ 子树豁免；session_search 无路径参数不纳入路径清单；

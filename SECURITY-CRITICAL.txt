@@ -1,0 +1,40 @@
+SECURITY-CRITICAL — 安全关键文件清单（P1-6）
+================================================
+
+规则（与 docs/CONTRIBUTING.md「安全对抗资产与安全关键清单」同源，具约束力）：
+  1. 触及本清单内任何文件的 PR 必须由人工 review，不允许自动合并；
+  2. 本清单只允许追加，禁止删除/移出条目来绕开人工 review；
+     移出必须走安全事件复盘流程并留审计记录。
+
+清单（路径 → 为什么安全关键）：
+
+src/tools/PermissionGate.h/.cpp
+    权限唯一判定点：三档评估、永不解禁清单、白名单 hardDenyReason（命令第二层共用）
+src/util/PathReal.h/.cpp
+    真实路径解析：junction/symlink 逐组件走真实路径，写边界与保护区共用
+src/tools/FileTools.h/.cpp
+    文件工具：写边界复核、保护区读拒绝、list_dir/search_files 逐项过滤 + skipped_protected
+src/tools/CommandTools.h/.cpp
+    命令执行：白名单 + 第二层 hardDeny 拦截，拒绝先行于 spawn（canary 对抗锚定）
+src/tools/ToolRegistry.h/.cpp
+    工具执行入口：err → ok=false 语义、取消令牌、执行结果审计
+src/tools/ExtraTools.h/.cpp
+    http_fetch 网络档位、memory_write 安全扫描 isSafeMemoryContent（不可见 Unicode/注入词面）
+src/memory/MemoryManager.h/.cpp
+    L1 投毒筛查（l1RewriteSuspicious/l1DiffSummary）、FTS 词转义、一致性失效前提
+src/core/AgentLoop.h/.cpp
+    deny 事件六元组、L1 改写接线、技能固化门槛、failover 权限降级联动
+src/core/AppContext.h
+    permissionMode / protectedReadRoots / 全局安全态
+src/core/EventBus.h/.cpp
+    审计事件双写（JSONL + SQLite），锁层级纪律一侧
+src/db/Database.h/.cpp
+    events/memories 落库、WAL + busy_timeout、写入互斥（审计不丢的另一半）
+src/util/NetGuard.h/.cpp
+    公网/内网判定（SSRF 面）
+src/util/Dpapi.h/.cpp
+    API Key / SMTP 授权码 DPAPI 加密落盘（凭据卫生）
+resources/config/providers.template.json
+    唯一允许入库的配置文件（占位符，无真实凭据）
+tests/adversarial/（整个目录）
+    对抗回归资产：不许删、不许 skip（见 CONTRIBUTING.md）
