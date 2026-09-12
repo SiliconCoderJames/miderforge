@@ -22,6 +22,7 @@ class EmailNotifier;
 class EventBus;
 class MemoryManager;
 class MemoryView;
+class PreviewPane;
 class ProviderManager;
 class ProviderPanel;
 class SessionView;
@@ -50,6 +51,7 @@ private:
     void openCommandPalette();      // Ctrl+K 命令面板（会话 + 动作）
     void restoreLastSession();      // 启动恢复最近会话（无历史则保持空态引导卡）
     void openSettingsAt(int pageIndex); // 打开设置并直达某面板页（pageIndex<0 = 默认页）
+    void openPreview();                 // 打开内置查看器（HTML / Markdown / 文本）
     void refreshStatusLabels();
     void refreshL1Footer();
     void applyPermissionMode(int idx); // 设置对话框 → Composer 权限下拉
@@ -77,6 +79,8 @@ private:
     AuditLogView* m_auditPage = nullptr;
     SettingsDialog* m_settings = nullptr; // 持有：嵌入内容区，避免每次进入都重挂面板
     int m_settingsPageIndex = -1;         // 设置页在 m_stack 中的索引
+    PreviewPane* m_previewPage = nullptr; // 内置查看器（HTML/Markdown/文本）
+    int m_previewIndex = -1;              // 查看器页在 m_stack 中的索引
     // 说明：权限档/供应商/停止/新建会话的控件均已迁至 Composer 与左栏，此处不再持有
     QLabel* m_statusTokens = nullptr;
     QLabel* m_statusQueue = nullptr;

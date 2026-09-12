@@ -5,6 +5,7 @@
 #include "app/CommandPalette.h"
 #include "app/FirstRunWizard.h"
 #include "app/MemoryView.h"
+#include "app/PreviewPane.h"
 #include "app/ProviderPanel.h"
 #include "app/SessionView.h"
 #include "app/SettingsDialog.h"
@@ -147,6 +148,10 @@ void MainWindow::buildCentral() {
     m_stack = new QStackedWidget(central);
     m_sessionView = new SessionView(m_db, m_loop, m_pm, m_stack);
     m_stack->addWidget(m_sessionView); // 0 会话（唯一常驻页）
+
+    // 1 内置查看器：HTML / Markdown / 文本（设置页在首次打开时才追加，故此处索引固定为 1）
+    m_previewPage = new PreviewPane(m_stack);
+    m_previewIndex = m_stack->addWidget(m_previewPage);
 
     // ---- 功能面板：依然构造出来，但归本窗口持有、由设置对话框借去当堆叠页 ----
     // 决策：原先 5 个面板平铺在左栏导航里（任务队列/技能库/记忆/供应商/审计日志），
@@ -311,6 +316,12 @@ void MainWindow::buildMenus() {
                 openSettingsAt(page);
         });
     }
+
+    viewMenu->addSeparator();
+    // 内置查看器：HTML / Markdown / 文本预览（无 WebEngine 依赖，走富文本引擎）
+    QAction* previewAct = viewMenu->addAction(QStringLiteral("查看器（HTML / Markdown）"));
+    previewAct->setShortcut(QKeySequence(QStringLiteral("Ctrl+8")));
+    connect(previewAct, &QAction::triggered, this, &MainWindow::openPreview);
 
     QMenu* toolMenu = menuBar()->addMenu(QStringLiteral("工具"));
     QAction* wizard = toolMenu->addAction(QStringLiteral("设置…"));
@@ -558,6 +569,14 @@ void MainWindow::openSettingsAt(int pageIndex) {
     if (pageIndex >= 0)
         m_settings->showPage(pageIndex);
     m_stack->setCurrentIndex(m_settingsPageIndex);
+}
+
+// 打开内置查看器：内容区切到查看器页，并按当前工作区刷新可查看文件列表
+void MainWindow::openPreview() {
+    if (!m_previewPage)
+        return;
+    m_previewPage->setWorkspaceRoot(AppContext::instance().workspaceRoot);
+    m_stack->setCurrentIndex(m_previewIndex);
 }
 
 } // namespace miderforge

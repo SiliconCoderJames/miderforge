@@ -5,6 +5,7 @@
 // 安全：QStandardPaths 测试模式 + QTemporaryDir，绝不触碰用户真实数据目录。
 // 输出统一走 say()（QString 拼接 + fputs），不用 printf：MSVC 在本目标把格式串告警当错误。
 #include "app/MainWindow.h"
+#include "app/PreviewPane.h"
 #include "app/Theme.h"
 #include "core/AgentLoop.h"
 #include "core/AppContext.h"
@@ -29,6 +30,7 @@
 #include <QStackedWidget>
 #include <QStandardPaths>
 #include <QTemporaryDir>
+#include <QTextBrowser>
 #include <QToolButton>
 #include <cstdio>
 #include <functional>
@@ -135,6 +137,15 @@ int main(int argc, char** argv) {
     }
     AppContext::instance().workspaceRoot = tmp.path();
 
+    // 预置可查看文件：一个 Markdown、一个带脚本的 HTML（查看器必须净化脚本）
+    {
+        QFile md(tmp.path() + QStringLiteral("/说明.md"));
+        if (md.open(QIODevice::WriteOnly))
+            md.write(QStringLiteral("# 查看器标题\n\n- 第一条\n\n```cpp\nint a=1;\n```").toUtf8());
+        QFile html(tmp.path() + QStringLiteral("/page.html"));
+        if (html.open(QIODevice::WriteOnly))
+            html.write(QStringLiteral("<h1>HTML 标题</h1><script>alert(1)</script><p>正文段</p>").toUtf8());
+    }
     say(QStringLiteral("[1] QApplication 就绪"));
     Database db;
     if (!db.open(tmp.path() + QStringLiteral("/probe.db"))) {
@@ -185,6 +196,34 @@ int main(int argc, char** argv) {
                 .arg(win.minimumSizeHint().width() > av.width() ? QStringLiteral("是 ← 会被推出屏幕")
                                                                : QStringLiteral("否")));
     }
+    // ---- ⑥ 内置查看器：打开 md / html，断言富文本真的渲染出来 ----
+    if (auto* preview = findByText<QWidget>(&win, [](QWidget* w) {
+            return QString::fromLatin1(w->metaObject()->className())
+                .contains(QStringLiteral("PreviewPane"));
+        })) {
+        auto* pane = static_cast<miderforge::PreviewPane*>(preview);
+        say(QStringLiteral("\n===== ⑥ 内置查看器 ====="));
+        pane->setWorkspaceRoot(AppContext::instance().workspaceRoot);
+        const auto lists = preview->findChildren<QListWidget*>();
+        say(QStringLiteral("  工作区可查看文件数（应有 2）: %1").arg(lists.isEmpty() ? -1 : lists.first()->count()));
+        auto* view = preview->findChild<QTextBrowser*>();
+        const bool mdOk = pane->openFile(tmp.path() + QStringLiteral("/说明.md"));
+        const QString mdText = view ? view->toPlainText() : QString();
+        say(QStringLiteral("  打开 Markdown: ok=%1 | 可见标题=%2 | 含列表项=%3 | 含代码=%4")
+                .arg(mdOk ? 1 : 0)
+                .arg(mdText.contains(QStringLiteral("查看器标题")) ? 1 : 0)
+                .arg(mdText.contains(QStringLiteral("第一条")) ? 1 : 0)
+                .arg(mdText.contains(QStringLiteral("int a=1;")) ? 1 : 0));
+        const bool htmlOk = pane->openFile(tmp.path() + QStringLiteral("/page.html"));
+        const QString htmlText = view ? view->toPlainText() : QString();
+        say(QStringLiteral("  打开 HTML: ok=%1 | 可见正文=%2 | 脚本未渲染=%3")
+                .arg(htmlOk ? 1 : 0)
+                .arg(htmlText.contains(QStringLiteral("HTML 标题")) ? 1 : 0)
+                .arg(htmlText.contains(QStringLiteral("alert(1)")) ? 0 : 1));
+    } else {
+        say(QStringLiteral("\n[!] 未找到 PreviewPane"));
+    }
+
     say(QStringLiteral("[字号] UI 基准 %1pt  等宽 %2pt")
             .arg(theme::uiFont().pointSize())
             .arg(theme::monoFont().pointSize()));
