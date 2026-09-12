@@ -154,12 +154,17 @@ set_tests_properties(mider_unit_tests PROPERTIES TIMEOUT 300)
 # 按套件拆独立 ctest 项（名字一律含 adversarial，供 ctest -R adversarial 收口）
 add_executable(mider_adversarial_tests
     tests/adversarial/adversarial_main.cpp
+    tests/adversarial/mock_sse_server.h
     tests/adversarial/WorkspaceBoundaryTest.cpp
+    tests/adversarial/ReadChannelTest.cpp
 )
 target_link_libraries(mider_adversarial_tests PRIVATE mider_core doctest::doctest)
 add_test(NAME adversarial.workspace_boundary
          COMMAND mider_adversarial_tests --test-suite=adversarial.workspace_boundary)
 set_tests_properties(adversarial.workspace_boundary PROPERTIES TIMEOUT 300)
+add_test(NAME adversarial.read_channel
+         COMMAND mider_adversarial_tests --test-suite=adversarial.read_channel)
+set_tests_properties(adversarial.read_channel PROPERTIES TIMEOUT 300)
 if(WIN32)
     # 测试 exe 的运行时 DLL（Qt 等）随构建就位，ctest 无需手工挂 PATH
     add_custom_command(TARGET mider_adversarial_tests POST_BUILD

@@ -2,6 +2,7 @@
 #pragma once
 #include "core/Breaker.h"
 #include <QString>
+#include <QStringList>
 #include <atomic>
 
 namespace miderforge {
@@ -28,6 +29,11 @@ public:
     int l1TokenLimit = 4000;        // L1 记忆上限（设置页可改）
     bool autoAcceptSkills = false;  // 技能自沉淀自动通过（设置页可改）
     bool memoryWriteApproval = false; // Hermes write_approval：记忆写入暂存待人工批准（设置页可改）
+    // P0-2 读取侧保护区（解析后的真实路径根）：read_file/list_dir/search_files/read_skill 在任何
+    // 档位拒绝读取这些根之下内容并记 read_denied。运行时由 main.cpp 注入应用自身数据
+    //（config/ DPAPI 密文、miderforge.db、memory/、logs/、miderforge.lock；skills/ 与 workspace/ 不在列）。
+    // PermissionGate 判定与 FileTools 枚举逐项过滤共用；测试用 QTemporaryDir 注入
+    QStringList protectedReadRoots;
 
 private:
     AppContext() = default;

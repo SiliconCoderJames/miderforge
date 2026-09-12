@@ -9,6 +9,7 @@
 #include "tools/FileTools.h"
 #include "tools/PermissionGate.h"
 #include "tools/ToolRegistry.h"
+#include "util/AppDirs.h"
 #include "util/JsonExtract.h"
 #include "util/Log.h"
 #include <QDateTime>
@@ -402,7 +403,14 @@ QString AgentLoop::classifyTarget(const QString& toolName, const QString& argsJs
         *kind = PermissionGate::Kind::Network;
         return args.value("url").toString();
     }
-    *kind = PermissionGate::Kind::ReadFile; // read_file/list_dir/search_files/read_skill 自动
+    if (toolName == QLatin1String("read_skill")) {
+        // P0-2：判定对象是 read_skill 实际读取的文件路径（skills/<name>/SKILL.md），
+        // 让名字清单与读取保护区对全部读取通道一视同仁（skills/ 在保护区外，正常技能不受影响）
+        *kind = PermissionGate::Kind::ReadFile;
+        return appdirs::file(QStringLiteral("skills/%1/SKILL.md").arg(args.value("name").toString()));
+    }
+    // 其余（list_dir / search_files）按读取处理，判定对象是各自的路径参数
+    *kind = PermissionGate::Kind::ReadFile;
     return FileTools::resolveWorkspacePath(args.value("path").toString(), ws);
 }
 
@@ -485,10 +493,30 @@ void AgentLoop::onStreamFinished(const StreamResult& result) {
             m_gate.evaluate(AppContext::instance().permissionMode, kind, target,
                              AppContext::instance().workspaceRoot);
         if (decision == PermissionGate::Decision::Denied) {
-            // 永不解禁/越界拒绝：记审计 + 结果回填，模型可自行改道
-            if (m_deps.events)
-                m_deps.events->append(QStringLiteral("permission_deny"), m_taskId,
-                                      QJsonObject{{"tool", tc.name}, {"target", target}});
+            // 永不解禁/越界拒绝：按通道记审计（读=read_denied，其余=permission_deny），
+            // 事件带六元组（actor/authorizer/target/operation/outcome/reason；ts/task_id 走 events 列）
+            const QString reason = m_gate.hardDenyReason(kind, target,
+                                                         AppContext::instance().workspaceRoot);
+            if (m_deps.events) {
+                const QString operation = kind == PermissionGate::Kind::ReadFile    ? QStringLiteral("read")
+                                          : kind == PermissionGate::Kind::WriteFile ? QStringLiteral("write")
+                                          : kind == PermissionGate::Kind::RunCommand
+                                              ? QStringLiteral("run_command")
+                                              : QStringLiteral("network");
+                m_deps.events->append(kind == PermissionGate::Kind::ReadFile
+                                          ? QStringLiteral("read_denied")
+                                          : QStringLiteral("permission_deny"),
+                                      m_taskId,
+                                      QJsonObject{{"actor", "agent"},
+                                                  {"authorizer", "permission_gate"},
+                                                  {"operation", operation},
+                                                  {"target", target},
+                                                  {"outcome", "denied"},
+                                                  {"reason", reason.isEmpty()
+                                                                     ? QStringLiteral("workspace_boundary")
+                                                                     : reason},
+                                                  {"tool", tc.name}});
+            }
             emit toolCallFinished(callId, false,
                                   QStringLiteral("错误：操作被权限系统永久拒绝：%1").arg(target), 0);
             m_history.append(QJsonObject{
@@ -888,10 +916,26 @@ QString AgentLoop::rerunTool(const QString& toolName, const QString& argsJson, b
                                                  "手动重跑无法弹确认卡片；请切到 Full Access，"
                                                  "或先在任务流中选「本会话总是允许」")
                                       .arg(permissionModeName(AppContext::instance().permissionMode));
-        if (m_deps.events)
-            m_deps.events->append(QStringLiteral("permission_deny"), m_taskId,
-                                  QJsonObject{{"tool", toolName}, {"target", target},
+        if (m_deps.events) {
+            // P0-2：读通道拒绝记 read_denied（与自动执行同口径，六元组齐全）
+            const bool readChannel = kind == PermissionGate::Kind::ReadFile;
+            const QString reason = m_gate.hardDenyReason(kind, target,
+                                                         AppContext::instance().workspaceRoot);
+            m_deps.events->append(readChannel ? QStringLiteral("read_denied")
+                                              : QStringLiteral("permission_deny"),
+                                  m_taskId,
+                                  QJsonObject{{"actor", "agent"},
+                                              {"authorizer", "permission_gate"},
+                                              {"operation", readChannel ? QStringLiteral("read")
+                                                                        : QStringLiteral("manual_rerun")},
+                                              {"target", target},
+                                              {"outcome", "denied"},
+                                              {"reason", reason.isEmpty()
+                                                                 ? QStringLiteral("permission_gate")
+                                                                 : reason},
+                                              {"tool", toolName},
                                               {"via", "manual_rerun"}});
+        }
         return QStringLiteral("错误：%1：%2").arg(why, target);
     }
 

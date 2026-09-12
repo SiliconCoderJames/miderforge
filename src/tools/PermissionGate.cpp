@@ -154,6 +154,19 @@ QString PermissionGate::hardDenyReason(PermissionGate::Kind kind, const QString&
         if (matchesForbiddenPath(target))
             return QStringLiteral("路径命中永不解禁清单（credential/secret/.env/token/id_rsa/密钥证书/.ssh）");
     }
+    if (kind == Kind::ReadFile) {
+        // P0-2：读取侧保护区（应用自身数据：config/ DPAPI 密文、miderforge.db、memory/、
+        // logs/、miderforge.lock），任何档位拒绝。真实路径判定：junction/symlink 指进保护区
+        // 同样命中；未配置时零开销直通（单测/无配置场景）
+        const QStringList& roots = AppContext::instance().protectedReadRoots;
+        if (!roots.isEmpty()) {
+            const QString real = pathreal::resolveReal(target);
+            for (const QString& root : roots) {
+                if (pathreal::isInsideOrEqual(real, root))
+                    return QStringLiteral("读取命中保护区（应用数据：配置/密文/数据库/记忆/审计日志）");
+            }
+        }
+    }
     if (kind == Kind::RunCommand) {
         const QString cmd = target.trimmed();
         const QStringList tokens =

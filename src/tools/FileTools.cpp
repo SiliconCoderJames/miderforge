@@ -1,6 +1,7 @@
 // 文件类工具实现
 #include "tools/FileTools.h"
 #include "core/AppContext.h"
+#include "tools/PermissionGate.h"
 #include "tools/ToolRegistry.h"
 #include "util/DiffUtil.h"
 #include "util/PathReal.h"
@@ -177,6 +178,11 @@ static void registerWriteFile(ToolRegistry& reg) {
     reg.add(std::move(def));
 }
 
+// P0-2：读取/枚举逐项过滤——名字清单或读取保护区命中即跳过（枚举与内容正则都不触达其字节）
+static bool isProtectedReadPath(const QString& path) {
+    return !PermissionGate().hardDenyReason(PermissionGate::Kind::ReadFile, path, QString()).isEmpty();
+}
+
 // ---------- list_dir（三档均自动） ----------
 static void registerListDir(ToolRegistry& reg) {
     ToolDef def;
@@ -202,18 +208,25 @@ static void registerListDir(ToolRegistry& reg) {
             return {};
         }
         QJsonArray entries;
+        int skippedProtected = 0;
         const QFileInfoList list =
             QDir(path).entryInfoList(QDir::AllEntries | QDir::Hidden, QDir::DirsFirst | QDir::Name);
         for (const QFileInfo& fi : list) {
             if (entries.size() >= 500) // 决策: 单次列目录封顶 500 条
                 break;
+            // P0-2：命中清单/保护区的条目只隐去名字，不出现也不触达
+            if (isProtectedReadPath(fi.absoluteFilePath())) {
+                ++skippedProtected;
+                continue;
+            }
             entries.append(QJsonObject{
                 {"name", fi.fileName()},
                 {"dir", fi.isDir()},
                 {"bytes", fi.isDir() ? 0 : int(fi.size())},
             });
         }
-        return envelope(QJsonObject{{"ok", true}, {"path", path}, {"entries", entries}});
+        return envelope(QJsonObject{{"ok", true}, {"path", path}, {"entries", entries},
+                                    {"skipped_protected", skippedProtected}});
     };
     reg.add(std::move(def));
 }
@@ -264,10 +277,17 @@ static void registerSearchFiles(ToolRegistry& reg) {
 
         QJsonArray hits;
         int scanned = 0;
+        int skippedProtected = 0;
         QDirIterator it(root, QDir::Files, QDirIterator::Subdirectories);
         while (it.hasNext()) {
             const QString path = it.next();
             ++scanned;
+            // P0-2：命中清单/保护区的文件在通配与内容匹配之前就被跳过（内容正则读不到其字节）；
+            // junction 指进保护区同样按解析后的真实路径命中
+            if (isProtectedReadPath(path)) {
+                ++skippedProtected;
+                continue;
+            }
             const QString name = QFileInfo(path).fileName();
             if (!QDir::match(pattern, name))
                 continue;
@@ -293,7 +313,8 @@ static void registerSearchFiles(ToolRegistry& reg) {
             }
         }
         return envelope(QJsonObject{
-            {"ok", true}, {"root", root}, {"scanned", scanned}, {"hits", hits}});
+            {"ok", true}, {"root", root}, {"scanned", scanned}, {"hits", hits},
+            {"skipped_protected", skippedProtected}});
     };
     reg.add(std::move(def));
 }

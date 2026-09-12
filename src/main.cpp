@@ -19,6 +19,7 @@
 #include "tools/ToolRegistry.h"
 #include "util/AppDirs.h"
 #include "util/Log.h"
+#include "util/PathReal.h"
 #include <QApplication>
 #include <QGuiApplication>
 #include <QIcon>
@@ -73,6 +74,22 @@ int main(int argc, char* argv[]) {
         app.installTranslator(&qtTranslator);
 
     AppContext::instance().workspaceRoot = appdirs::workspaceRoot();
+    // P0-2 读取侧保护区：应用自身数据（DPAPI 密文/数据库/记忆/审计日志/锁），任何档位拒绝读取。
+    // skills/（技能加载通道）与 workspace/ 不在列；存解析后的真实路径根，junction 指进去同样命中
+    {
+        QStringList protectedReadRoots;
+        const auto addRoot = [&protectedReadRoots](const QString& rel) {
+            const QString r = pathreal::resolveReal(appdirs::file(rel));
+            if (!r.isEmpty())
+                protectedReadRoots << r;
+        };
+        addRoot(QStringLiteral("config"));
+        addRoot(QStringLiteral("memory"));
+        addRoot(QStringLiteral("logs"));
+        addRoot(QStringLiteral("miderforge.db"));
+        addRoot(QStringLiteral("miderforge.lock"));
+        AppContext::instance().protectedReadRoots = protectedReadRoots;
+    }
 
     // 供应商配置：不存在或无可用 Key → 首次配置向导
     ProviderManager providers;

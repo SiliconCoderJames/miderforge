@@ -37,6 +37,35 @@
     落盘前复核已收窄窗口，根治需写时打开改用 reparse 语义（留 Roadmap）。
   - workspaceRoot 自身解析失败 → 一切写按越界拒绝（fail-closed）；空工作区根同样拒绝一切写。
 
+## P0-2 读取通道：永不解禁 + 读取侧保护区（完成）
+- 改动：
+  - \`AppContext::protectedReadRoots\`：读取侧保护区真实路径根列表（运行时注入，测试可注入临时目录）。
+  - \`main.cpp\`：注入应用自身数据根（解析后真实路径）：config/（DPAPI 密文）、miderforge.db、
+    memory/、logs/、miderforge.lock；skills/（技能加载通道）与 workspace/ 不在列。
+  - \`PermissionGate::hardDenyReason\`：ReadFile 增保护区判定——resolveReal 后逐根 isInsideOrEqual，
+    junction/symlink 指进保护区同样命中；列表为空零开销直通（单测场景）。任何档位（含 FullAccess）拒绝。
+  - \`AgentLoop::classifyTarget\`：read_skill 判定对象改为实际读取路径 skills/<name>/SKILL.md
+    （名字清单与保护区对全部读取通道一视同仁；正常技能名不受影响）。
+  - deny 事件按通道分流：读通道 \`read_denied\`，其余仍 \`permission_deny\`；六元组入 payload
+    （actor/authorizer/target/operation/outcome/reason；ts/task_id 走 events 列），
+    自动执行与手动重跑（rerunTool）同口径。
+  - \`FileTools\`：list_dir/search_files 枚举结果逐项过滤（命中清单/保护区只隐名并计数），
+    envelope 增加 \`skipped_protected\`；search_files 的内容正则在过滤之后，读不到保护文件字节。
+- 测试（tests/adversarial/ReadChannelTest.cpp，ctest 项 \`adversarial.read_channel\`，6 用例 52 断言）：
+  - 门槛三档拒绝（保护区 + 名字清单回归 + 正常文件保持可读）。
+  - list_dir/search_files 零泄露（命中项不出现、skipped_protected 计数、返回文本不含 canary）。
+  - read_skill 判定对象路径组合与 AgentLoop 同构（credentials 命中拒，正常技能放行）。
+  - 端到端：本地 mock SSE 驱动真实 AgentLoop+EventBus+Database——模型请求读保护文件 →
+    工具以失败回填且不含文件内容 → events 表出现 read_denied 行且六元组齐全 → JSONL 双写留痕。
+  - 隔离：fixture 全在 QTemporaryDir；QStandardPaths 测试模式把 appdirs 隔离到 qttest
+    （adversarial 入口统一启用），provider 配置/假 Key（DPAPI）不触碰真实用户目录。
+- 证据（本机实测）：BUILD_EXIT=0；\`ctest --preset win64-release\` → 3/3 Passed
+  （mider_unit_tests 11.1s + workspace_boundary 0.2s + read_channel 0.2s）；对抗可执行连跑 8/8 全绿。
+- 遗留 / 说明：
+  - 保护区根在启动时解析一次；运行中更换数据目录需重启生效（v1 可接受）。
+  - 对抗套件曾出现一次偶发 fastfail（0xc0000409，仅首轮构建后复现两次）；adversarial_main
+    已改无缓冲 stdout，此后连续 10+ 次全量运行未复现；若再现，崩溃现场输出可直读。
+
 ## 地图确认时已定的方案（你已确认"地图无误"）
 - P0-2：把应用自身数据目录（config/ DPAPI 密文、miderforge.db、memory/、logs/、miderforge.lock）
   加入读取侧保护区；read_skill 走 skills/ 子树豁免；session_search 无路径参数不纳入路径清单；
