@@ -33,6 +33,10 @@ ChatClient::ChatClient(QObject* parent) : QObject(parent) {
 
 ChatClient::~ChatClient() {
     m_retryTimer.stop();
+    // 先取消在飞传输再退线程：quit() 只在事件循环空闲时生效，curl 仍阻塞在 executeStream
+    // 槽里时线程退不出去，wait 超时走泄漏路径（进程退出时带着活线程，偶发 fastfail）。
+    // cancelActive 是原子标志，progress 回调在下一块数据/连接阶段即中止传输，槽随即返回
+    m_http->cancelActive();
     m_thread.quit();
     if (!m_thread.wait(10000)) {
         // 有界等待：卡死的 curl（如 DNS 悬挂）不再把整个进程拖成"无响应假死"。

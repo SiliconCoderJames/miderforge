@@ -1,5 +1,7 @@
 // 对抗测试用 mock SSE 服务器（按连接序号回放脚本）。tests/adversarial 自含版本：
-// 与 tests/test_mockstream.cpp 的设施同构，但去 Q_OBJECT（lambda 连接，免 moc）
+// 与 tests/test_mockstream.cpp 的设施同构，但去 Q_OBJECT（lambda 连接，免 moc）。
+// 已回应集合在 socket 销毁时即摘除：QTcpSocket 被 deleteLater 释放后新连接极可能
+// 复用同一地址，陈旧指针会让 contains() 误判"已回应"→ 永不回响应 → 客户端挂死
 #pragma once
 #include <QByteArray>
 #include <QHostAddress>
@@ -29,6 +31,8 @@ public:
             const int idx = m_connCount++;
             const MockScenario sc = m_scenarios[qMin(idx, m_scenarios.size() - 1)];
             connect(sock, &QTcpSocket::disconnected, sock, &QTcpSocket::deleteLater);
+            // socket 销毁时同步摘除已回应标记（指针地址可能被后续连接复用）
+            connect(sock, &QTcpSocket::destroyed, this, [this, sock] { m_replied.remove(sock); });
             connect(sock, &QTcpSocket::readyRead, this, [this, sock, sc] {
                 if (m_replied.contains(sock))
                     return;

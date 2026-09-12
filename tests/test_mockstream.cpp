@@ -66,6 +66,9 @@ private slots:
         const int idx = m_connCount++;
         const MockScenario sc = m_scenarios[qMin(idx, m_scenarios.size() - 1)];
         connect(sock, &QTcpSocket::disconnected, sock, &QTcpSocket::deleteLater);
+        // 已回应标记随 socket 销毁同步摘除：deleteLater 释放后，新连接极可能复用同一地址，
+        // 陈旧指针会让 contains() 误判"已回应"→ 永不回响应 → 客户端挂死（偶发红测根因）
+        connect(sock, &QTcpSocket::destroyed, this, [this, sock] { m_replied.remove(sock); });
         connect(sock, &QTcpSocket::readyRead, this, [this, sock, sc] {
             if (m_replied.contains(sock))
                 return;

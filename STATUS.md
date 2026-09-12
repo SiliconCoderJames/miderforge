@@ -63,8 +63,8 @@
   （mider_unit_tests 11.1s + workspace_boundary 0.2s + read_channel 0.2s）；对抗可执行连跑 8/8 全绿。
 - 遗留 / 说明：
   - 保护区根在启动时解析一次；运行中更换数据目录需重启生效（v1 可接受）。
-  - 对抗套件曾出现一次偶发 fastfail（0xc0000409，仅首轮构建后复现两次）；adversarial_main
-    已改无缓冲 stdout，此后连续 10+ 次全量运行未复现；若再现，崩溃现场输出可直读。
+  - 【已修复，见 P0-fix】对抗套件曾出现偶发 fastfail/挂起（read_channel 端到端约 1/6），
+    根因见下节，非本任务改动引入。
 
 ## P0-3 命令白名单：任意代码执行向量拦截（完成）
 - 改动（\`PermissionGate.cpp\`，第一层；\`CommandTools.cpp\` 第二层同源复用）：
@@ -99,8 +99,22 @@
   - 白名单只收紧不放宽：本轮对白名单的净变化是**新增两类拒绝向量**；无任何新增放行。
   - 已知残余：git commit/merge 会触发仓库钩子（.git/hooks 属工作区内可写文件，写边界管不住
     其内容）；钓出钩子执行需勾子语义审查，留 Roadmap。
-  - 单测二进制偶发 fastfail（0xc0000409，约 1/6 次运行，P0-2 起偶见，与本任务改动无关联路径）；
-    稳定复现路径未找到，adversarial_main 已无缓冲化，复现时可直读现场。留观。
+
+## P0-fix 偶发挂起/崩溃根因修复（checkpoint 后）
+- 现象：SSE 流式测试偶发挂起（mock 建连后不回响应，等待超时红测），此前同一场景
+  还以 fastfail（0xc0000409）形态出现过；两套测试（unit/adversarial）各自约 1/6 频率。
+- 根因（压测 + 全链路打点抓到现场）：两处 MockSseServer 的已回应集合 \`QSet<QTcpSocket*>`
+  只增不清。上一条连接的 socket 断开后 deleteLater 释放，下一条连接的新 socket 极大概率
+  复用同一地址 → \`m_replied.contains(sock)\` 命中陈旧指针 → 静默早退、永不回响应。
+  只咬第 2+ 条连接（重试连接/端到端第 2、3 连）与堆布局敏感两个特征完全吻合。
+- 修复：
+  - tests/test_mockstream.cpp 与 tests/adversarial/mock_sse_server.h：socket \`destroyed\`
+    信号即从集合摘除标记，杜绝陈旧指针误配。
+  - src/llm/ChatClient.cpp：析构先 \`cancelActive()\` 再 quit+wait——原实现 curl 仍阻塞在
+    工作线程槽里时 quit 排不上队，10s 超时走"故意泄漏"路径，进程带着活线程退出偶发
+    fastfail。挂起场景因此从崩溃变成干净的超时红测，才得以抓到根因。
+- 证据：修复后对抗 30/30、单测 20/20 连续压测全绿；全量 \`ctest --preset win64-release\`
+  4/4 Passed 连续两轮。
 
 ## 地图确认时已定的方案（你已确认"地图无误"）
 - P0-2：把应用自身数据目录（config/ DPAPI 密文、miderforge.db、memory/、logs/、miderforge.lock）
