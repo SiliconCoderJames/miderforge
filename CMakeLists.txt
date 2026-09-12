@@ -117,6 +117,17 @@ if(WIN32)
         VERBATIM)
 endif()
 
+# UI 几何探针（开发者诊断工具，不参与发布）：离屏构造真实 MainWindow 并打印
+# 控件树/几何/可见性/最小尺寸，让"看不到界面"时的布局问题变成可读数字
+add_executable(mider_ui_probe tests/ui_probe_main.cpp)
+target_link_libraries(mider_ui_probe PRIVATE mider_ui)
+if(WIN32)
+    add_custom_command(TARGET mider_ui_probe POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_RUNTIME_DLLS:mider_ui_probe> $<TARGET_FILE_DIR:mider_ui_probe>
+        COMMAND_EXPAND_LISTS)
+endif()
+
 # 单元测试（doctest）：只依赖 mider_core，不拉 Widgets
 add_executable(mider_tests
     tests/test_main.cpp
