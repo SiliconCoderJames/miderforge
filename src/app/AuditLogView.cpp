@@ -27,8 +27,8 @@ QString typeColor(const QString& type) {
 
 AuditLogView::AuditLogView(EventBus* events, QWidget* parent) : QWidget(parent), m_events(events) {
     auto* lay = new QVBoxLayout(this);
-    lay->setContentsMargins(12, 10, 12, 10);
-    lay->setSpacing(6);
+    lay->setContentsMargins(12, 8, 12, 8);
+    lay->setSpacing(4);
 
     auto* top = new QHBoxLayout();
     auto* title = new QLabel(QStringLiteral("📜 审计日志（append-only，全量操作留痕）"), this);

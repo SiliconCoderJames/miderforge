@@ -52,7 +52,8 @@ private:
     QWidget* m_streamRow = nullptr;   // "● 正在生成…"
     QLabel* m_streamDot = nullptr;
     QLabel* m_streamLabel = nullptr;
-    QWidget* m_actionRow = nullptr;   // 完成后：复制
+    QWidget* m_actionRow = nullptr;   // 完成后：复制 + 元信息脚注
+    QLabel* m_metaLabel = nullptr;    // 元信息脚注（模型 · 时间）
     QTimer m_flushTimer;
     QString m_pendingThinking;
     QString m_pendingContent;

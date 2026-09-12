@@ -35,14 +35,14 @@ SidebarView::SidebarView(QWidget* parent) : QWidget(parent) {
     setStyleSheet(QStringLiteral("SidebarView{background-color:%1;border-right:1px solid %2;}")
                       .arg(theme::colors::panel().name(), theme::colors::line().name()));
     auto* lay = new QVBoxLayout(this);
-    lay->setContentsMargins(10, 10, 10, 12);
-    lay->setSpacing(3);
+    lay->setContentsMargins(8, 8, 8, 12);
+    lay->setSpacing(4);
 
     // ---- 品牌区：🔨 Miderforge / 标语 / 渐变签名线（品牌色→强调色） ----
     auto* brandRow = new QWidget(this);
     auto* brandLay = new QHBoxLayout(brandRow);
-    brandLay->setContentsMargins(8, 6, 0, 0);
-    brandLay->setSpacing(6);
+    brandLay->setContentsMargins(8, 4, 0, 0);
+    brandLay->setSpacing(4);
     auto* brand = new QLabel(QStringLiteral("🔨 Miderforge"), brandRow);
     brand->setStyleSheet(QStringLiteral("color:%1;font-size:13pt;font-weight:bold;")
                              .arg(theme::colors::brand().name()));
@@ -53,7 +53,7 @@ SidebarView::SidebarView(QWidget* parent) : QWidget(parent) {
     m_menuBtn->setText(QStringLiteral("⌄"));
     m_menuBtn->setToolTip(QStringLiteral("主题 / 设置 / 退出"));
     m_menuBtn->setPopupMode(QToolButton::InstantPopup);
-    m_menuBtn->setFixedSize(26, 26);
+    m_menuBtn->setFixedSize(28, 28); // 与三档控件高度同刻度（原 26 是刻度外的孤值）
     m_menuBtn->setStyleSheet(QStringLiteral(
         "QToolButton{border:none;background:transparent;color:%1;font-size:12pt;}"
         "QToolButton:hover{background-color:%2;border-radius:5px;}")
@@ -123,7 +123,7 @@ SidebarView::SidebarView(QWidget* parent) : QWidget(parent) {
     // 会话被归档后"它去哪了"必须一眼能找到答案
     auto* toolsRow = new QWidget(this);
     auto* toolsLay = new QHBoxLayout(toolsRow);
-    toolsLay->setContentsMargins(2, 0, 2, 0);
+    toolsLay->setContentsMargins(0, 0, 0, 0);
     toolsLay->setSpacing(4);
     toolsLay->addStretch(1);
     m_archivedToggle = new QToolButton(toolsRow);
@@ -154,7 +154,7 @@ SidebarView::SidebarView(QWidget* parent) : QWidget(parent) {
     m_sessionList = new QListWidget(this);
     m_sessionList->setStyleSheet(QStringLiteral(
         "QListWidget{background:transparent;border:none;font-size:9.5pt;outline:none;}"
-        "QListWidget::item{height:34px;border-radius:6px;padding-left:8px;color:%2;margin:1px 0;}"
+        "QListWidget::item{height:32px;border-radius:6px;padding-left:8px;color:%2;margin:1px 0;}"
         "QListWidget::item:hover{background-color:%1;}"
         "QListWidget::item:selected{background-color:%3;color:white;}")
                                      .arg(theme::colors::window().name(), theme::colors::textDim().name(),
@@ -197,8 +197,8 @@ SidebarView::SidebarView(QWidget* parent) : QWidget(parent) {
 
     auto* l1Row = new QWidget(this);
     auto* l1Lay = new QVBoxLayout(l1Row);
-    l1Lay->setContentsMargins(6, 6, 6, 0);
-    l1Lay->setSpacing(3);
+    l1Lay->setContentsMargins(4, 4, 4, 0);
+    l1Lay->setSpacing(4);
     m_l1Label = new QLabel(l1Row);
     m_l1Label->setStyleSheet(QStringLiteral("color:%1;font-size:9.5pt;").arg(theme::colors::textDim().name()));
     m_l1Bar = new QProgressBar(l1Row);
@@ -225,8 +225,9 @@ void SidebarView::loadSessions(Database* db) {
     const auto rows = db->query(sessionq::listSql(m_showArchived), {});
     for (const auto& r : rows) {
         const QString title = r.value("title").toString();
-        const QString time = QDateTime::fromSecsSinceEpoch(r.value("updated_at").toLongLong())
-                                 .toString(QStringLiteral("MM-dd hh:mm"));
+        // 相对时间（今天 14:32 / 昨天 / N 天前）：一行内把"新旧"讲清楚
+        const QString time = sessionq::relativeTime(r.value("updated_at").toLongLong(),
+                                                    QDateTime::currentSecsSinceEpoch());
         const bool archived = r.value("archived_at").toLongLong() > 0;
         auto* item = new QListWidgetItem(m_sessionList);
         item->setText(archived ? QStringLiteral("%1\n%2 · 已归档").arg(title, time)

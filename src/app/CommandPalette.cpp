@@ -48,7 +48,7 @@ CommandPalette::CommandPalette(QWidget* parent) : QDialog(parent) {
     setStyleSheet(QStringLiteral("QDialog{background-color:%1;border:1px solid %2;border-radius:12px;}")
                       .arg(theme::colors::panel().name(), theme::colors::line().name()));
     auto* lay = new QVBoxLayout(this);
-    lay->setContentsMargins(10, 10, 10, 8);
+    lay->setContentsMargins(8, 8, 8, 8);
     lay->setSpacing(8);
 
     m_input = new QLineEdit(this);
@@ -67,7 +67,7 @@ CommandPalette::CommandPalette(QWidget* parent) : QDialog(parent) {
     m_list = new QListWidget(this);
     m_list->setStyleSheet(QStringLiteral(
         "QListWidget{background:transparent;border:none;outline:none;font-size:11pt;}"
-        "QListWidget::item{height:34px;border-radius:7px;padding-left:10px;color:%2;margin:1px 0;}"
+        "QListWidget::item{height:32px;border-radius:7px;padding-left:10px;color:%2;margin:1px 0;}"
         "QListWidget::item:selected{background-color:%1;color:white;}")
                               .arg(theme::colors::accent().name(), theme::colors::text().name()));
     m_list->setFixedHeight(320);

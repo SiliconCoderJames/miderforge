@@ -16,7 +16,7 @@ FirstRunWizard::FirstRunWizard(ProviderManager* pm, QWidget* parent)
     setMinimumWidth(560);
 
     auto* lay = new QVBoxLayout(this);
-    lay->setSpacing(10);
+    lay->setSpacing(8);
 
     auto* title = new QLabel(QStringLiteral("<b>欢迎使用 Miderforge</b>"), this);
     auto* hint = new QLabel(

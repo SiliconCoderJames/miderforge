@@ -77,7 +77,7 @@ PreviewPane::PreviewPane(QWidget* parent) : QWidget(parent) {
     m_files->setStyleSheet(QStringLiteral(
         "QListWidget{background-color:%1;border:1px solid %2;border-radius:8px;font-size:10pt;"
         "outline:none;padding:4px;}"
-        "QListWidget::item{height:26px;border-radius:5px;padding-left:6px;color:%3;}"
+        "QListWidget::item{height:32px;border-radius:5px;padding-left:6px;color:%3;}"
         "QListWidget::item:hover{background-color:%4;}"
         "QListWidget::item:selected{background-color:%5;color:white;}")
                                .arg(theme::colors::panel().name(), theme::colors::line().name(),

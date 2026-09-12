@@ -16,7 +16,7 @@ namespace miderforge {
 MemoryView::MemoryView(MemoryManager* mem, AdjudicationService* adjudicator, QWidget* parent)
     : QWidget(parent), m_mem(mem), m_adjudicator(adjudicator) {
     auto* rootLay = new QVBoxLayout(this);
-    rootLay->setContentsMargins(12, 10, 12, 10);
+    rootLay->setContentsMargins(12, 8, 12, 8);
     rootLay->setSpacing(8);
 
     // 顶栏：搜索 + 类型过滤

@@ -76,8 +76,8 @@ SettingsDialog::SettingsDialog(ProviderManager* pm, EmailNotifier* mail, const P
     m_navHost->setStyleSheet(QStringLiteral("background-color:%1;border-right:1px solid %2;")
                                  .arg(theme::colors::window().name(), theme::colors::panel().name()));
     m_navLay = new QVBoxLayout(m_navHost);
-    m_navLay->setContentsMargins(10, 10, 10, 10);
-    m_navLay->setSpacing(2);
+    m_navLay->setContentsMargins(8, 8, 8, 8);
+    m_navLay->setSpacing(0);
 
     // 返回：设置是"从工作区进来的"，给出明确退路（Esc 也能关，但按钮更直观）
     auto* backBtn = new QPushButton(QStringLiteral("←  返回工作区"), m_navHost);
@@ -96,7 +96,7 @@ SettingsDialog::SettingsDialog(ProviderManager* pm, EmailNotifier* mail, const P
     m_search = new QLineEdit(m_navHost);
     m_search->setPlaceholderText(QStringLiteral("搜索设置…"));
     m_search->setClearButtonEnabled(true);
-    m_search->setFixedHeight(30);
+    m_search->setFixedHeight(28);
     m_search->setStyleSheet(QStringLiteral(
         "QLineEdit{background-color:%1;border:1px solid %2;border-radius:6px;"
         "padding:2px 8px;font-size:10pt;color:%3;}"
@@ -160,7 +160,7 @@ SettingsDialog::SettingsDialog(ProviderManager* pm, EmailNotifier* mail, const P
     lay->addWidget(pageScroll, 1);
 
     auto* bottom = new QHBoxLayout();
-    bottom->setContentsMargins(12, 8, 12, 10);
+    bottom->setContentsMargins(12, 8, 12, 8);
     bottom->addStretch(1);
     auto* save = new QPushButton(QStringLiteral("保存"), this);
     save->setObjectName(QStringLiteral("primaryBtn"));
@@ -257,7 +257,7 @@ void SettingsDialog::showPage(int pageIndex) {
 QWidget* SettingsDialog::buildGeneralPage() {
     auto* w = new QWidget(this);
     auto* form = new QFormLayout(w);
-    form->setContentsMargins(20, 18, 20, 18);
+    form->setContentsMargins(20, 16, 20, 16);
 
     m_permCombo = new QComboBox(w);
     m_permCombo->addItems({QStringLiteral("Suggest（读自动/写提案/命令与网络禁止）"),
@@ -281,7 +281,7 @@ QWidget* SettingsDialog::buildGeneralPage() {
 QWidget* SettingsDialog::buildAppearancePage() {
     auto* w = new QWidget(this);
     auto* form = new QFormLayout(w);
-    form->setContentsMargins(20, 18, 20, 18);
+    form->setContentsMargins(20, 16, 20, 16);
 
     m_paletteCombo = new QComboBox(w);
     for (const auto& pal : theme::palettes())
@@ -299,7 +299,7 @@ QWidget* SettingsDialog::buildAppearancePage() {
 QWidget* SettingsDialog::buildProviderPage() {
     auto* w = new QWidget(this);
     auto* lay = new QVBoxLayout(w);
-    lay->setContentsMargins(20, 18, 20, 18);
+    lay->setContentsMargins(20, 16, 20, 16);
     m_providerTable = new QTableWidget(int(m_pm->all().size()), 3, w);
     m_providerTable->setHorizontalHeaderLabels(
         {QStringLiteral("供应商"), QStringLiteral("接口地址 base_url"), QStringLiteral("API Key")});
@@ -352,7 +352,7 @@ QWidget* SettingsDialog::buildMailPage() {
     const auto& cfg = m_mail->config();
     auto* w = new QWidget(this);
     auto* form = new QFormLayout(w);
-    form->setContentsMargins(20, 18, 20, 18);
+    form->setContentsMargins(20, 16, 20, 16);
     m_smtpUrl = new QLineEdit(cfg.smtpUrl.isEmpty() ? QStringLiteral("smtps://smtp.qq.com:465")
                                                     : cfg.smtpUrl, w);
     m_from = new QLineEdit(cfg.from, w);
@@ -377,7 +377,7 @@ QWidget* SettingsDialog::buildBudgetPage() {
     const auto& limits = AppContext::instance().limits;
     auto* w = new QWidget(this);
     auto* form = new QFormLayout(w);
-    form->setContentsMargins(20, 18, 20, 18);
+    form->setContentsMargins(20, 16, 20, 16);
     m_maxRounds = new QSpinBox(w);
     m_maxRounds->setRange(3, 200);
     m_maxRounds->setValue(limits.maxRounds);
@@ -398,7 +398,7 @@ QWidget* SettingsDialog::buildBudgetPage() {
 QWidget* SettingsDialog::buildMemoryPage() {
     auto* w = new QWidget(this);
     auto* form = new QFormLayout(w);
-    form->setContentsMargins(20, 18, 20, 18);
+    form->setContentsMargins(20, 16, 20, 16);
     m_l1Limit = new QSpinBox(w);
     m_l1Limit->setRange(500, 100000);
     m_l1Limit->setSingleStep(500);
@@ -420,7 +420,7 @@ QWidget* SettingsDialog::buildMemoryPage() {
 QWidget* SettingsDialog::buildHivePage() {
     auto* w = new QWidget(this);
     auto* form = new QFormLayout(w);
-    form->setContentsMargins(20, 18, 20, 18);
+    form->setContentsMargins(20, 16, 20, 16);
 
     m_hiveEnabled = new QCheckBox(QStringLiteral("启用（连接本机 AgentHive 服务）"), w);
     m_hiveHost = new QLineEdit(QStringLiteral("127.0.0.1"), w);

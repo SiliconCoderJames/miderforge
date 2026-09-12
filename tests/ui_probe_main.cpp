@@ -24,6 +24,7 @@
 #include <QFile>
 #include <QGuiApplication>
 #include <QLabel>
+#include <QLayout>
 #include <QListWidget>
 #include <QPushButton>
 #include <QScreen>
@@ -32,6 +33,7 @@
 #include <QTemporaryDir>
 #include <QTextBrowser>
 #include <QToolButton>
+#include <QMap>
 #include <cstdio>
 #include <functional>
 
@@ -222,6 +224,43 @@ int main(int argc, char** argv) {
                 .arg(htmlText.contains(QStringLiteral("alert(1)")) ? 0 : 1));
     } else {
         say(QStringLiteral("\n[!] 未找到 PreviewPane"));
+    }
+
+
+    // ---- ⑦ 风格一致性扫描：全窗口实际用到的固定高度 / 布局间距 / 内边距种类 ----
+    // 目的：把"看着不整齐"量化——种类越少越统一（4px 刻度 + 三档控件高度）
+    {
+        QMap<QString, int> heights, spacings, margins;
+        std::function<void(QWidget*)> walk = [&](QWidget* w) {
+            if (!w)
+                return;
+            if (w->minimumHeight() > 0 && w->minimumHeight() == w->maximumHeight())
+                heights[QString::number(w->minimumHeight())] += 1;
+            if (auto* lay = w->layout()) {
+                spacings[QString::number(lay->spacing())] += 1;
+                const auto m = lay->contentsMargins();
+                margins[QStringLiteral("%1,%2,%3,%4")
+                            .arg(m.left()).arg(m.top()).arg(m.right()).arg(m.bottom())] += 1;
+            }
+            for (QObject* c : w->children())
+                if (auto* cw = qobject_cast<QWidget*>(c))
+                    walk(cw);
+        };
+        walk(&win);
+
+        auto dumpMap = [&](const QString& title, const QMap<QString, int>& m) {
+            QStringList parts;
+            for (auto it = m.constBegin(); it != m.constEnd(); ++it)
+                parts << QStringLiteral("%1×%2").arg(it.key()).arg(it.value());
+            say(QStringLiteral("  %1 种类=%2 → %3")
+                    .arg(title)
+                    .arg(m.size())
+                    .arg(parts.join(QStringLiteral("  "))));
+        };
+        say(QStringLiteral("\n===== ⑦ 风格一致性扫描 ====="));
+        dumpMap(QStringLiteral("固定高度"), heights);
+        dumpMap(QStringLiteral("布局间距"), spacings);
+        dumpMap(QStringLiteral("内边距  "), margins);
     }
 
     say(QStringLiteral("[字号] UI 基准 %1pt  等宽 %2pt")

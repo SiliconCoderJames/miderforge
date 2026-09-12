@@ -35,6 +35,9 @@ public:
     // 品牌行右侧的菜单按钮（MainWindow 挂主题/退出等动作）
     QToolButton* menuButton() const { return m_menuBtn; }
 
+    // 顶部工作区行：显示当前工作目录名，点击触发 workspaceChangeRequested
+    void setWorkspaceLabel(const QString& fullPath);
+
     // 侧栏底部 L1 核心记忆占用
     void setL1Usage(long long used, long long cap);
 
@@ -45,6 +48,8 @@ signals:
     void searchRequested();
     // 底部「设置」→ 打开设置对话框（功能面板都收在里面）
     void settingsRequested();
+    // 顶部工作区行被点击 → 主窗口弹目录选择器
+    void workspaceChangeRequested();
     // 会话右键菜单动作（标题用原文，删除需上层确认后执行）
     void sessionRenameRequested(qint64 id, const QString& newTitle);
     void sessionDeleteRequested(qint64 id);
@@ -59,6 +64,7 @@ private:
 
     QPushButton* m_newBtn = nullptr;
     QLineEdit* m_search = nullptr;      // 会话搜索/过滤
+    QPushButton* m_wsBtn = nullptr;     // 工作区行（显示当前目录名，点击换目录）
     QListWidget* m_sessionList = nullptr;
     Database* m_db = nullptr;        // 会话列表数据源（重命名取权威旧标题也用它）
     bool m_showArchived = false;     // 「显示已归档」开关

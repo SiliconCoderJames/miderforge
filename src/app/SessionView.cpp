@@ -28,8 +28,8 @@ SessionView::SessionView(Database* db, AgentLoop* loop, ProviderManager* pm, QWi
     : QWidget(parent), m_loop(loop), m_db(db), m_pm(pm) {
     // 主列由 MainWindow 与左栏 SidebarView 并列排布；这里只负责中栏内容
     auto* rootLay = new QVBoxLayout(this);
-    rootLay->setContentsMargins(8, 6, 8, 8);
-    rootLay->setSpacing(6);
+    rootLay->setContentsMargins(8, 4, 8, 8);
+    rootLay->setSpacing(4);
 
     rootLay->addWidget(buildTopStrip());
 
@@ -182,8 +182,8 @@ QWidget* SessionView::buildTopStrip() {
     // 空闲：无容器（指标只是淡字）｜运行中：品牌色描边卡片（一眼看出任务在跑）
     strip->setStyleSheet(QStringLiteral("QFrame{background:transparent;border:none;}"));
     auto* lay = new QHBoxLayout(strip);
-    lay->setContentsMargins(2, 0, 2, 0);
-    lay->setSpacing(10);
+    lay->setContentsMargins(0, 0, 0, 0);
+    lay->setSpacing(8);
 
     m_changesBar = new ChangeSummaryBar(strip);
     connect(m_changesBar, &ChangeSummaryBar::fileActivated, this, &SessionView::onChangedFileClicked);
@@ -292,7 +292,7 @@ void SessionView::buildEmptyState() {
         auto* card = new QPushButton(cardWrap);
         auto* cardLay = new QVBoxLayout(card);
         cardLay->setContentsMargins(16, 12, 16, 12);
-        cardLay->setSpacing(2);
+        cardLay->setSpacing(0);
         auto* ct = new QLabel(QString::fromUtf8(c.title), card);
         ct->setStyleSheet(QStringLiteral("color:%1;font-size:11.5pt;font-weight:bold;border:none;")
                               .arg(theme::colors::text().name()));
@@ -533,7 +533,7 @@ QWidget* SessionView::buildInputArea() {
     m_chipsHost = new QWidget(frame);
     m_chipsLay = new QHBoxLayout(m_chipsHost);
     m_chipsLay->setContentsMargins(0, 0, 0, 0);
-    m_chipsLay->setSpacing(6);
+    m_chipsLay->setSpacing(4);
     m_chipsLay->addStretch(1);
     m_chipsHost->setVisible(false);
     frameLay->addWidget(m_chipsHost);
@@ -554,7 +554,7 @@ QWidget* SessionView::buildInputArea() {
 
     auto* footer = new QHBoxLayout();
     footer->setContentsMargins(0, 0, 0, 0);
-    footer->setSpacing(6);
+    footer->setSpacing(4);
     footer->addWidget(buildComposerMetaRow(frame), 1);
 
     m_sendBtn = new QPushButton(QStringLiteral("发送"), frame);

@@ -1,6 +1,7 @@
 // 聊天控件集实现
 #include "app/ChatWidgets.h"
 #include "app/Theme.h"
+#include "core/AppContext.h"
 #include <QAbstractAnimation>
 #include <QClipboard>
 #include <QFileInfo>
@@ -10,6 +11,7 @@
 #include <QListWidget>
 #include <QMainWindow>
 #include <QPointer>
+#include <QTime>
 #include <QPropertyAnimation>
 #include <QPushButton>
 #include <QRegularExpression>
@@ -254,7 +256,7 @@ QString mdToHtml(const QString& md) {
 // ---------- UserBubble ----------
 UserBubble::UserBubble(const QString& text, QWidget* parent) : QWidget(parent) {
     auto* lay = new QHBoxLayout(this);
-    lay->setContentsMargins(0, 2, 0, 2);
+    lay->setContentsMargins(0, 0, 0, 0);
     lay->addStretch(1);
 
     // 气泡底色由**当前色板**派生（原先硬编码 #324059，切到 Codex/Claude 皮肤后配色不跟随）
@@ -281,7 +283,7 @@ UserBubble::UserBubble(const QString& text, QWidget* parent) : QWidget(parent) {
 // ---------- AssistantBlock ----------
 AssistantBlock::AssistantBlock(QWidget* parent) : QWidget(parent) {
     auto* lay = new QVBoxLayout(this);
-    lay->setContentsMargins(0, 2, 0, 2);
+    lay->setContentsMargins(0, 0, 0, 0);
     lay->setSpacing(4);
 
     // 思考区：流式期间默认展开（此时正是"它在想什么"最有价值的时刻），
@@ -328,8 +330,8 @@ AssistantBlock::AssistantBlock(QWidget* parent) : QWidget(parent) {
     // 流式"正在生成"指示：正文末尾的品牌色方块 + 状态点，让用户明确知道还在输出
     m_streamRow = new QWidget(this);
     auto* streamLay = new QHBoxLayout(m_streamRow);
-    streamLay->setContentsMargins(2, 0, 0, 0);
-    streamLay->setSpacing(6);
+    streamLay->setContentsMargins(0, 0, 0, 0);
+    streamLay->setSpacing(4);
     m_streamDot = new QLabel(QStringLiteral("●"), m_streamRow);
     m_streamDot->setStyleSheet(QStringLiteral("color:%1;font-size:9.5pt;")
                                    .arg(theme::colors::accent().name()));
@@ -361,6 +363,12 @@ AssistantBlock::AssistantBlock(QWidget* parent) : QWidget(parent) {
                     Toast::Level::Success, 1600);
     });
     actLay->addWidget(copyBtn);
+    // 元信息脚注（模型 · 时间）：主流 Agent 的做法——"谁在什么时候答的"可追溯，
+    // 也让每条回复有明确的收束线，不至于一条条悬空
+    m_metaLabel = new QLabel(m_actionRow);
+    m_metaLabel->setStyleSheet(QStringLiteral("color:%1;font-size:9.5pt;")
+                                   .arg(theme::colors::textDim().name()));
+    actLay->addWidget(m_metaLabel);
     actLay->addStretch(1);
     m_actionRow->setVisible(false);
     lay->addWidget(m_actionRow);
@@ -375,6 +383,10 @@ void AssistantBlock::setStreaming(bool on) {
     m_streaming = on;
     m_streamRow->setVisible(on);
     if (!on) {
+        const QString model = AppContext::instance().activeModelLabel;
+        m_metaLabel->setText(QStringLiteral("%1 · %2")
+                                 .arg(model.isEmpty() ? QStringLiteral("Miderforge") : model,
+                                      QTime::currentTime().toString(QStringLiteral("HH:mm"))));
         m_actionRow->setVisible(!m_contentText.isEmpty());
         // 生成结束后收起思考区（内容已定稿，思考过程不再需要占位）
         if (m_thinkingToggle->isChecked())
@@ -448,7 +460,7 @@ ToolCallCard::ToolCallCard(const QString& callId, const QString& toolName, QWidg
     setBorderColor(theme::colors::accent()); // 初始=运行中色
 
     auto* outer = new QVBoxLayout(this);
-    outer->setContentsMargins(10, 6, 10, 6);
+    outer->setContentsMargins(8, 4, 8, 4);
     outer->setSpacing(4);
 
     // 头部：展开按钮 + 工具名 + 状态（圆点 + 文字）
@@ -477,7 +489,7 @@ ToolCallCard::ToolCallCard(const QString& callId, const QString& toolName, QWidg
     m_body = new QWidget(this);
     auto* bodyLay = new QVBoxLayout(m_body);
     bodyLay->setContentsMargins(4, 0, 4, 0);
-    bodyLay->setSpacing(2);
+    bodyLay->setSpacing(0);
     m_body->setVisible(false);
 
     auto makeTitle = [this](const QString& t) {
@@ -516,7 +528,7 @@ ToolCallCard::ToolCallCard(const QString& callId, const QString& toolName, QWidg
     // 结果操作行：复制 / 重跑（结果不能只有"看"一种用法）
     auto* actionRow = new QHBoxLayout();
     actionRow->setContentsMargins(0, 0, 0, 0);
-    actionRow->setSpacing(6);
+    actionRow->setSpacing(4);
     actionRow->addWidget(m_expandBtn);
     actionRow->addStretch(1);
     m_copyBtn = new QPushButton(QStringLiteral("复制结果"), m_body);
@@ -549,7 +561,7 @@ ToolCallCard::ToolCallCard(const QString& callId, const QString& toolName, QWidg
     // 待确认三按钮（M1 权限门接入后可见）
     m_confirmRow = new QWidget(m_body);
     auto* confirmLay = new QHBoxLayout(m_confirmRow);
-    confirmLay->setContentsMargins(0, 2, 0, 0);
+    confirmLay->setContentsMargins(0, 0, 0, 0);
     auto* allowOnce = new QPushButton(QStringLiteral("允许一次"), m_confirmRow);
     auto* allowAlways = new QPushButton(QStringLiteral("本会话总是允许"), m_confirmRow);
     auto* deny = new QPushButton(QStringLiteral("拒绝"), m_confirmRow);
@@ -685,7 +697,7 @@ ChangeSummaryBar::ChangeSummaryBar(QWidget* parent) : QFrame(parent) {
     m_list = new QListWidget(m_body);
     m_list->setStyleSheet(QStringLiteral(
         "QListWidget{background:transparent;border:none;font-size:10pt;outline:none;}"
-        "QListWidget::item{height:26px;border-radius:6px;padding-left:4px;color:%2;margin:1px 0;}"
+        "QListWidget::item{height:32px;border-radius:6px;padding-left:4px;color:%2;margin:1px 0;}"
         "QListWidget::item:hover{background-color:%1;}")
                               .arg(theme::colors::window().name(), theme::colors::textDim().name()));
     m_list->setMaximumHeight(160);
@@ -741,7 +753,7 @@ Toast::Toast(QWidget* parent, const QString& text, Level level, int msec)
         "QFrame{background-color:%1;border:1px solid %2;border-radius:8px;}")
                       .arg(theme::colors::panel().name(), theme::colors::line().name()));
     auto* lay = new QHBoxLayout(this);
-    lay->setContentsMargins(12, 9, 12, 9);
+    lay->setContentsMargins(12, 8, 12, 8);
     lay->setSpacing(8);
 
     // 左侧语义色竖条：一眼区分 信息/成功/警告/失败，不依赖读文字

@@ -15,7 +15,7 @@ namespace miderforge {
 
 SkillView::SkillView(SkillManager* skills, QWidget* parent) : QWidget(parent), m_skills(skills) {
     auto* lay = new QVBoxLayout(this);
-    lay->setContentsMargins(12, 10, 12, 10);
+    lay->setContentsMargins(12, 8, 12, 8);
     lay->setSpacing(8);
 
     auto* top = new QHBoxLayout();

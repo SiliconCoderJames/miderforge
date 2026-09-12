@@ -96,7 +96,7 @@ QVariant TasksModel::headerData(int section, Qt::Orientation o, int role) const 
 TaskQueueView::TaskQueueView(Database* db, AgentLoop* loop, QWidget* parent)
     : QWidget(parent), m_db(db), m_loop(loop) {
     auto* lay = new QVBoxLayout(this);
-    lay->setContentsMargins(12, 10, 12, 10);
+    lay->setContentsMargins(12, 8, 12, 8);
     lay->setSpacing(8);
 
     auto* top = new QHBoxLayout();

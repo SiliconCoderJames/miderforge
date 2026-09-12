@@ -9,7 +9,7 @@ namespace miderforge {
 
 ProviderPanel::ProviderPanel(ProviderManager* pm, QWidget* parent) : QWidget(parent), m_pm(pm) {
     auto* outer = new QVBoxLayout(this);
-    outer->setContentsMargins(12, 10, 12, 10);
+    outer->setContentsMargins(12, 8, 12, 8);
 
     // 顶部：故障转移链展示
     QString chain;
@@ -30,7 +30,7 @@ ProviderPanel::ProviderPanel(ProviderManager* pm, QWidget* parent) : QWidget(par
     auto* host = new QWidget(scroll);
     m_grid = new QGridLayout(host);
     m_grid->setContentsMargins(0, 8, 0, 8);
-    m_grid->setSpacing(10);
+    m_grid->setSpacing(8);
     scroll->setWidget(host);
     outer->addWidget(scroll, 1);
 
@@ -66,7 +66,7 @@ QWidget* ProviderPanel::makeCard(const ProviderConfig& cfg) {
     card->setMaximumWidth(520);
 
     auto* lay = new QVBoxLayout(card);
-    lay->setContentsMargins(12, 10, 12, 10);
+    lay->setContentsMargins(12, 8, 12, 8);
 
     // 名称 + 状态灯（绿=健康/红=故障/灰=未配置）
     const ProviderManager::Health h = m_pm->health(cfg.name);

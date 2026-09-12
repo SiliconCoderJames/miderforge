@@ -2,6 +2,7 @@
 // 且使用 core/SessionQueries.h 里 UI 实际调用的同一条 SQL（契约共用，杜绝假验证）。
 #include "core/SessionQueries.h"
 #include "db/Database.h"
+#include <QDateTime>
 #include <QFile>
 #include <QTemporaryDir>
 #include <QVariantMap>
@@ -78,6 +79,23 @@ TEST_CASE("迁移：老库（缺 archived_at）重新 open 时自动补列且不
         db.execute(miderforge::sessionq::archiveSql(), {id});
         CHECK(db.query(miderforge::sessionq::listSql(false), {}).empty());
     }
+}
+
+TEST_CASE("会话行时间：相对时间文案（今天/昨天/N 天前/跨年）") {
+    using miderforge::sessionq::relativeTime;
+    const qint64 now = QDateTime(QDate(2026, 3, 15), QTime(10, 0)).toSecsSinceEpoch();
+    const qint64 today = QDateTime(QDate(2026, 3, 15), QTime(14, 32)).toSecsSinceEpoch();
+    const qint64 yesterday = QDateTime(QDate(2026, 3, 14), QTime(9, 5)).toSecsSinceEpoch();
+    const qint64 threeDays = QDateTime(QDate(2026, 3, 12), QTime(9, 5)).toSecsSinceEpoch();
+    const qint64 lastMonth = QDateTime(QDate(2026, 2, 10), QTime(9, 5)).toSecsSinceEpoch();
+    const qint64 lastYear = QDateTime(QDate(2025, 11, 2), QTime(9, 5)).toSecsSinceEpoch();
+
+    CHECK(relativeTime(today, now) == QStringLiteral("今天 14:32"));
+    CHECK(relativeTime(yesterday, now) == QStringLiteral("昨天 09:05"));
+    CHECK(relativeTime(threeDays, now) == QStringLiteral("3 天前"));
+    CHECK(relativeTime(lastMonth, now) == QStringLiteral("02-10"));
+    CHECK(relativeTime(lastYear, now) == QStringLiteral("2025-11-02"));
+    CHECK(relativeTime(0, now).isEmpty()); // 无时间戳不留噪声
 }
 
 TEST_CASE("重命名：标题落库且 updated_at 不变（改名不该把会话顶到列表最前）") {
