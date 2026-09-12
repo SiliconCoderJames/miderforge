@@ -1,49 +1,40 @@
-# Miderforge 应用图标生成器 v2:夜蓝圆角底 + 蜜金锻造锤 + 锻造火花 + 淡蓝蜂窝六边形
-# 设计语言与 docs/assets/logo.svg(README 头图)完全同源,由本脚本以 Pillow 复刻:
-#   - 底:夜蓝纵向渐变 + 锤身后的「炉光」暖色 radial + 四角暗角 + 顶部玻璃高光
-#   - 血统:一枚点顶蜂窝六边形细描边(低透明度,呼应姊妹项目 MiderHive)
-#   - 主体:对角 45° 锻造锤(头在左上、手柄扫向右下),头上一条机加工感高光细线
-#   - 点睛:锤头右上飞出三颗渐远渐小的锻造火花
-# 产物:resources/assets/miderforge.ico(16..256 多尺寸)、resources/assets/miderforge-256.png
-#       (1024 源,qrc 引用名保持稳定)、resources/assets/icon-preview.png(深浅底预览)
+# Miderforge 应用图标生成器 v3:「一击」竖直锻击构图
+# 设计语言(v3 重构,对 v2 做减法):
+#   - 叙事:锻锤自上而下,锤击一枚点顶六棱蜜金锭——锤=Forge,六棱锭=Mider 血统(MiderHive),
+#     一击之下的白热星芒=锻造瞬间。三个元素讲完品牌,再无第七层特效。
+#   - 网格:2048 画布,12 列网格;锤头 928x450、柄 124 宽、锭 R=180,间距 60,全部落格。
+#   - 光效只留三种:锤头一道机加工高光线、触点一团暖 radial 辉光、白热星芒本体。
+#     玻璃高光/暗角/独立投影/散点火花全部删除(v2 的七层在 16px 处糊成一团)。
+#   - 配色与 UI 深色主题同源:夜蓝底、蜜金锤、白热星。
+# 产物:resources/assets/miderforge.ico(16..256)、miderforge-256.png(1024 源)、
+#       icon-preview.png(变体 A/B + 尺寸阶梯,深浅底可读性检查)
 # 用法:python resources/scripts/make_icon.py   (需 Pillow)
 import math
 import os
 
 from PIL import Image, ImageDraw, ImageFilter
 
-# 本文件位于 resources/scripts/,故资源目录是同级 resources/assets(不能再多退一层)
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ASSETS = os.path.join(ROOT, "assets")
 os.makedirs(ASSETS, exist_ok=True)
 
 S = 2048  # 超采样画布
 
-# 配色(与 UI 深色主题同源;forge=蜜金、hive=淡蓝)
-BG_TOP = (40, 48, 63)
-BG_BOTTOM = (19, 24, 33)
-HEX = (93, 153, 255, 56)           # 蜂窝描边:应用强调蓝,低透明度,血统暗号
-AMBER_L = (255, 214, 130)          # 锤头亮部
-AMBER_R = (240, 146, 8)            # 锤头暗部(比 v1 更深,拉开花面层次)
-HANDLE_L = (244, 186, 86)
-HANDLE_R = (188, 118, 22)
-GRIP = (134, 72, 8)
-SPARK_L = (255, 231, 194)          # 火花近端(白热)
-SPARK_R = (255, 196, 87)           # 火花远端(橙)
-SHADOW = (0, 0, 0, 84)
+# 配色(与 UI 深色主题同源)
+BG_TOP = (38, 46, 62)        # 夜蓝
+BG_BOTTOM = (17, 22, 30)
+HEAD_L = (255, 223, 166)     # 锤头亮部(上)
+HEAD_R = (232, 146, 7)       # 锤头暗部(下)
+HANDLE_T = (240, 185, 107)   # 柄顶
+HANDLE_B = (156, 98, 20)     # 柄底
+INGOT_T = (255, 217, 143)    # 锭亮部
+INGOT_B = (217, 123, 6)      # 锭暗部
+EMBER = (245, 158, 11)       # 触点辉光
+STAR_W = (255, 249, 236)     # 星芒白热
+STAR_A = (255, 196, 87)      # 星芒外圈
 
 
 # ---------------------------------------------------------------- 渐变工具 ----
-def h_gradient(size, left, right):
-    """水平渐变图"""
-    w, h = size
-    strip = Image.new("RGB", (256, 1))
-    for x in range(256):
-        t = x / 255.0
-        strip.putpixel((x, 0), tuple(int(l + (r - l) * t) for l, r in zip(left, right)))
-    return strip.resize((w, h), Image.BILINEAR)
-
-
 def v_gradient(size, top, bottom):
     w, h = size
     strip = Image.new("RGB", (1, 256))
@@ -53,8 +44,16 @@ def v_gradient(size, top, bottom):
     return strip.resize((w, h), Image.BILINEAR)
 
 
+def h_gradient(size, left, right):
+    w, h = size
+    strip = Image.new("RGB", (256, 1))
+    for x in range(256):
+        t = x / 255.0
+        strip.putpixel((x, 0), tuple(int(l + (r - l) * t) for l, r in zip(left, right)))
+    return strip.resize((w, h), Image.BILINEAR)
+
+
 def radial_overlay(size, center, r_inner, r_outer, color, a_inner, a_outer, steps=72):
-    """径向透明叠层:color 在 a_inner..a_outer 间随半径线性衰减(负值方向亦可)"""
     ov = Image.new("RGBA", size, (0, 0, 0, 0))
     d = ImageDraw.Draw(ov)
     cx, cy = center
@@ -69,7 +68,6 @@ def radial_overlay(size, center, r_inner, r_outer, color, a_inner, a_outer, step
 
 
 def rounded_gradient(canvas, box, radius, grad):
-    """按圆角矩形掩膜把渐变贴上画布(尺寸不符时自动拉伸到 box)"""
     w, h = box[2] - box[0], box[3] - box[1]
     if grad.size != (w, h):
         grad = grad.resize((w, h), Image.BILINEAR)
@@ -78,106 +76,83 @@ def rounded_gradient(canvas, box, radius, grad):
     canvas.paste(grad, (box[0], box[1]), mask)
 
 
-def hexagon(draw, center, radius, width, color):
-    """点顶蜂窝六边形描边(圆角接头);与 MiderHive 品牌六边形同构"""
+def hexagon(center, radius):
+    """点顶正六边形顶点"""
     cx, cy = center
-    pts = [(cx + radius * math.cos(math.radians(60 * i - 90)),
-            cy + radius * math.sin(math.radians(60 * i - 90))) for i in range(6)]
-    draw.line(pts + [pts[0]], fill=color, width=width, joint="curve")
+    return [(cx + radius * math.sin(math.radians(60 * i)),
+             cy - radius * math.cos(math.radians(60 * i))) for i in range(6)]
 
 
-# ---------------------------------------------------------------- 锤子主体 ----
+def star4(layer, center, r_long, r_short, core_r, color_core, color_halo):
+    """四芒星芒:柔光晕 + 细长四芒 + 白热核。锻造触点的点睛一笔"""
+    cx, cy = center
+    halo = Image.new("RGBA", layer.size, (0, 0, 0, 0))
+    ImageDraw.Draw(halo).ellipse([cx - r_long * 2.4, cy - r_long * 2.4,
+                                  cx + r_long * 2.4, cy + r_long * 2.4],
+                                 fill=color_halo + (110,))
+    layer.alpha_composite(halo.filter(ImageFilter.GaussianBlur(40)))
+    pts = []
+    for i in range(8):
+        ang = math.radians(90 * (i // 2) + 45 * (i % 2))
+        r = r_long if i % 2 == 0 else r_short
+        pts.append((cx + r * math.cos(ang), cy - r * math.sin(ang)))
+    ImageDraw.Draw(layer).polygon(pts, fill=color_halo + (235,))
+    core = Image.new("RGBA", layer.size, (0, 0, 0, 0))
+    ImageDraw.Draw(core).ellipse([cx - core_r, cy - core_r, cx + core_r, cy + core_r],
+                                 fill=color_core + (255,))
+    layer.alpha_composite(core.filter(ImageFilter.GaussianBlur(4)))
+
+
+# ---------------------------------------------------------------- 锤体 ----
 def hammer_boxes():
-    """直立锤各部件(x0,y0,x1,y1):两端锤面、头杆、手柄、握把带
-    v2 比例:锤面略收窄、头杆更修长、手柄减细,整体重心上移,留出火花空间"""
+    """直立锻锤(击打方向朝下):头 slab 一体成型(v2 的五段拼接缝全部取消)"""
     return [
-        (456, 396, 676, 908),    # 左锤面
-        (1372, 396, 1592, 908),  # 右锤面
-        (580, 464, 1468, 846),   # 头杆
-        (944, 800, 1104, 1592),  # 手柄(比 v1 细,去掉粗笨感)
-        (924, 1316, 1124, 1392), # 握把防滑带(收窄、低调)
+        (560, 430, 1488, 880),   # 锤头
+        (962, 856, 1086, 1400),  # 手柄(上端没入锤头之下,视觉一体)
     ]
 
 
-def sparks():
-    """锻造火花:从头右上面向外飞溅,(x, y, 半径, 透明度),渐远渐小渐淡"""
-    return [
-        (1690, 470, 40, 255),
-        (1790, 356, 28, 225),
-        (1868, 244, 18, 190),
-        (1622, 566, 12, 150),
-    ]
-
-
-def hammer_layer(rotation):
-    """直立锻造锤 + 投影 + 高光线 + 火花 → 旋转 rotation 度"""
+def hammer_layer(tilt_deg):
     layer = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-
-    # 投影层:同形状黑色剪影,偏移后重模糊(比 v1 更散,落地更稳)
-    shadow = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-    sd = ImageDraw.Draw(shadow)
-    for box in hammer_boxes():
-        sd.rounded_rectangle([box[0] + 28, box[1] + 40, box[2] + 28, box[3] + 40],
-                             radius=70, fill=SHADOW)
-    shadow = shadow.filter(ImageFilter.GaussianBlur(56))
-    layer.alpha_composite(shadow)
-
-    caps_g = h_gradient((220, 512), AMBER_R, AMBER_L)
-    bar_g = h_gradient((888, 382), AMBER_L, AMBER_R)
-    handle_g = v_gradient((160, 792), HANDLE_L, HANDLE_R)
-    grip_g = h_gradient((200, 76), GRIP, GRIP)
-    for box, r, g in zip(hammer_boxes(), [84, 84, 88, 66, 38],
-                         [caps_g, caps_g, bar_g, handle_g, grip_g]):
+    head_g = v_gradient((928, 450), HEAD_L, HEAD_R)
+    handle_g = v_gradient((124, 544), HANDLE_T, HANDLE_B)
+    for box, r, g in zip(hammer_boxes(), [96, 54], [head_g, handle_g]):
         rounded_gradient(layer, box, r, g)
-
-    # 机加工感:头杆上缘一条细高光(白,低透明度),立刻「贵」起来
+    # 机加工高光:头沿一道细白线,立即有金属感
     spec = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-    ImageDraw.Draw(spec).rounded_rectangle([608, 498, 1444, 540], radius=21,
-                                           fill=(255, 255, 255, 64))
+    ImageDraw.Draw(spec).rounded_rectangle([614, 474, 1434, 512], radius=19,
+                                           fill=(255, 255, 255, 82))
     layer.alpha_composite(spec)
-
-    # 火花:每颗先铺一圈柔光,再点实体(近端白热、远端偏橙)
-    spark_soft = Image.new("RGBA", (S, S), (0, 0, 0, 0))
-    spd = ImageDraw.Draw(spark_soft)
-    for x, y, r, a in sparks():
-        spd.ellipse([x - r * 3, y - r * 3, x + r * 3, y + r * 3],
-                    fill=SPARK_R + (int(a * 0.16),))
-    layer.alpha_composite(spark_soft.filter(ImageFilter.GaussianBlur(26)))
-    sd2 = ImageDraw.Draw(layer)
-    for i, (x, y, r, a) in enumerate(sparks()):
-        col = SPARK_L if i < 2 else SPARK_R
-        sd2.ellipse([x - r, y - r, x + r, y + r], fill=col + (a,))
-
-    return layer.rotate(rotation, resample=Image.BICUBIC, expand=True)
+    return layer.rotate(tilt_deg, resample=Image.BICUBIC, center=(1024, 900))
 
 
 # ---------------------------------------------------------------- 合成 ----
-def compose(rotation):
+def compose(tilt_deg):
     canvas = v_gradient((S, S), BG_TOP, BG_BOTTOM).convert("RGBA")
-
-    # 圆角方底掩膜(整图裁形)
     mask = Image.new("L", (S, S), 0)
     ImageDraw.Draw(mask).rounded_rectangle([64, 64, S - 64, S - 64], radius=448, fill=255)
 
-    # 炉光:锤身后一团暖色 radial,主体从底色里「浮」出来
-    glow = radial_overlay((S, S), (S // 2, int(S * 0.46)), 80, 700, (245, 158, 11), 0, 62)
+    # 触点辉光:锤与锭之间一团暖光,击打瞬间从缝里亮出来
+    glow = radial_overlay((S, S), (1024, 1430), 70, 560, EMBER, 96, 0)
     canvas.alpha_composite(glow)
 
-    # 蜂窝六边形描边(点顶、细线、低透明度;画在锤后形成层次)
-    hexagon(ImageDraw.Draw(canvas), (S // 2, S // 2), 640, 20, HEX)
+    # 六棱锭(点顶,血统暗号):锤下被锻之物
+    ingot = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+    ig = v_gradient((380, 360), INGOT_T, INGOT_B)
+    im = Image.new("L", (380, 360), 0)
+    pts = [(190 + r * math.sin(math.radians(60 * i)),
+            180 - r * math.cos(math.radians(60 * i))) for i, r in
+           [(i, 178) for i in range(6)]]
+    ImageDraw.Draw(im).polygon(pts, fill=255)
+    ingot.paste(ig, (1024 - 190, 1640 - 180), im)
+    canvas.alpha_composite(ingot)
 
-    layer = hammer_layer(rotation)
-    canvas.alpha_composite(layer, (int((S - layer.width) / 2), int((S - layer.height) / 2)))
+    # 白热星芒:击打缝隙正中
+    star4(canvas, (1024, 1424), 96, 30, 26, STAR_W, STAR_A)
 
-    # 顶部玻璃高光:一条竖向白→透明渐变压在上沿(克制,不能抢主体)
-    glass = v_gradient((S, int(S * 0.48)), (255, 255, 255), (0, 0, 0)).convert("RGBA")
-    glass.putalpha(glass.split()[0].point(lambda v: int(v * 0.10)))
-    canvas.alpha_composite(glass)
-
-    # 四角暗角:径向透明→深黑,视线收向中心
-    vig = radial_overlay((S, S), (S // 2, S // 2), int(S * 0.30), int(S * 0.74),
-                         (0, 0, 0), 0, 78, steps=96)
-    canvas.alpha_composite(vig)
+    # 锤体(带 tilt 的动感)
+    layer = hammer_layer(tilt_deg)
+    canvas.alpha_composite(layer)
 
     out = Image.new("RGBA", (S, S), (0, 0, 0, 0))
     out.paste(canvas, (0, 0), mask)
@@ -185,19 +160,23 @@ def compose(rotation):
 
 
 def main():
-    variants = {"A": compose(-45), "B": compose(45)}  # 两种对角朝向,预览挑选
+    variants = {"A": compose(0), "B": compose(8)}  # A 端正 / B 微倾(动势)
 
-    # 预览:两变体并排(深/浅两底检查边缘)
-    pv = Image.new("RGB", (1024, 512), (240, 240, 240))
+    # 预览:上排 A/B 大图;下排 B 的尺寸阶梯(128/64/32/16)验证小尺寸可读性
+    pv = Image.new("RGB", (1024, 1024), (238, 240, 243))
     for i, key in enumerate(("A", "B")):
         icon = variants[key].resize((512, 512), Image.LANCZOS)
         pv.paste(icon, (i * 512, 0), icon)
+    ladder_x = [32, 192, 320, 416]
+    ladder_s = [128, 64, 32, 16]
+    for x, s_ in zip(ladder_x, ladder_s):
+        icon = variants["B"].resize((s_, s_), Image.LANCZOS)
+        pv.paste(icon, (x, 640), icon)
     pv.save(os.path.join(ASSETS, "icon-preview.png"))
 
-    # 选定后由人工确认再落盘正式产物:默认写变体 B(头在左上,手柄扫向右下,阅读方向更顺)
-    chosen = variants["B"]
-    master = chosen.resize((1024, 1024), Image.LANCZOS)
-    master.save(os.path.join(ASSETS, "miderforge-256.png"))  # 1024 源,qrc 引用名保持稳定
+    # 正式产物沿用既有文件名(引用点零改动):默认 B(微倾,有动势)
+    master = variants["B"].resize((1024, 1024), Image.LANCZOS)
+    master.save(os.path.join(ASSETS, "miderforge-256.png"))
     master.save(
         os.path.join(ASSETS, "miderforge.ico"),
         format="ICO",
