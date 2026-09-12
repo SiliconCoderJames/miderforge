@@ -53,55 +53,202 @@ QString diffColorized(const QString& text) {
 
 QString inlineMd(QString s) {
     s = escapeHtml(s);
+    // 行内规则顺序有讲究：先摘出 `code`（其中的 * 不该被当强调），再处理链接与强调
     static const QRegularExpression codeRe(QStringLiteral("`([^`]+)`"));
-    s.replace(codeRe, QStringLiteral("<code style=\"background-color:%1;font-family:'Consolas';\">\\1</code>")
-                          .arg(theme::colors::codeBg().name()));
+    s.replace(codeRe,
+              QStringLiteral("<code style=\"background-color:%1;font-family:'Consolas';"
+                             "font-size:10pt;padding:1px 4px;border-radius:4px;\">\\1</code>")
+                  .arg(theme::colors::codeBg().name()));
+    static const QRegularExpression linkRe(QStringLiteral(R"(\[([^\]]+)\]\((https?://[^)\s]+)\))"));
+    s.replace(linkRe,
+              QStringLiteral("<a href=\"\\2\" style=\"color:%1;text-decoration:none;\">\\1</a>")
+                  .arg(theme::colors::accent().name()));
     static const QRegularExpression boldRe(QStringLiteral(R"(\*\*([^*]+)\*\*)"));
     s.replace(boldRe, QStringLiteral("<b>\\1</b>"));
+    static const QRegularExpression strikeRe(QStringLiteral(R"(~~([^~]+)~~)"));
+    s.replace(strikeRe, QStringLiteral("<s>\\1</s>"));
+    // ⚠ 原始字符串分隔符是 R"( … )"：模式本身以 ( 开头时必须写成 R"(( … ))"，
+    // 否则首尾括号会被分隔符吃掉。本行此前就是坏的（模式成了「?<!\*)\*…」，
+    // QRegularExpression 报 quantifier does not follow a repeatable item 并静默不匹配，
+    // 于是斜体 Markdown 从未生效过；新增的渲染器测试把这个陈年 bug 抓了出来。
     static const QRegularExpression italicRe(QStringLiteral(R"((?<!\*)\*([^*\n]+)\*(?!\*))"));
     s.replace(italicRe, QStringLiteral("<i>\\1</i>"));
     return s;
 }
+
+// 列表项前导空白 → 缩进层级（2 空格 = 一级）
+int listIndentLevel(const QString& line) {
+    int spaces = 0;
+    while (spaces < line.size() && line.at(spaces) == QLatin1Char(' '))
+        ++spaces;
+    return qBound(0, spaces / 2, 3);
+}
+
 } // namespace
 
+// Markdown → Qt 富文本（块级渲染器 v2）。
+// 取舍：不引第三方 Markdown 库（体积与安全面），用行级状态机覆盖模型实际会输出的子集，
+// 但把**排版**做对——标题分级、列表缩进、引用块、分隔线、代码块带语言标签与内边距、
+// 段落间距 8px、行高 165%。目标是长回答"像文档"，而不是一坨没有层级的文字。
 QString mdToHtml(const QString& md) {
-    QStringList htmlParts;
-    // 按 ``` 围栏切块：奇数块为代码块（等宽灰底原样输出），偶数块走行内规则
-    const QStringList blocks = md.split(QStringLiteral("```"));
-    for (int i = 0; i < blocks.size(); ++i) {
-        const QString& block = blocks.at(i);
-        if (i % 2 == 1) {
-            QString code = block;
-            const int nl = code.indexOf(QLatin1Char('\n'));
-            if (nl >= 0 && nl < 24)
-                code.remove(0, nl + 1); // 去掉语言标注行
-            htmlParts << QStringLiteral(
-                "<table width=\"100%\" cellspacing=\"0\" cellpadding=\"6\" "
-                "style=\"background-color:%1;margin:4px 0;\"><tr><td>"
-                "<pre style=\"font-family:'Consolas';margin:0;white-space:pre-wrap;\">%2</pre>"
-                "</td></tr></table>")
-                          .arg(theme::colors::codeBg().name(), escapeHtml(code));
-        } else {
-            const QStringList lines = block.split(QLatin1Char('\n'));
-            QStringList out;
-            for (const QString& line : lines) {
-                if (line.startsWith(QStringLiteral("#### ")))
-                    out << QStringLiteral("<b>%1</b>").arg(inlineMd(line.mid(5)));
-                else if (line.startsWith(QStringLiteral("### ")))
-                    out << QStringLiteral("<b>%1</b>").arg(inlineMd(line.mid(4)));
-                else if (line.startsWith(QStringLiteral("## ")))
-                    out << QStringLiteral("<b><big>%1</big></b>").arg(inlineMd(line.mid(3)));
-                else if (line.startsWith(QStringLiteral("# ")))
-                    out << QStringLiteral("<b><big>%1</big></b>").arg(inlineMd(line.mid(2)));
-                else if (line.startsWith(QStringLiteral("- ")) || line.startsWith(QStringLiteral("* ")))
-                    out << QStringLiteral("• %1").arg(inlineMd(line.mid(2)));
-                else
-                    out << inlineMd(line);
+    if (md.isEmpty())
+        return QString();
+
+    const QString textCol = theme::colors::text().name();
+    const QString dimCol = theme::colors::textDim().name();
+    const QString codeCol = theme::colors::codeBg().name();
+    const QString lineCol = theme::colors::line().name();
+
+    QString html;
+    QStringList para;   // 累积普通行 → 一个段落
+    QStringList quote;  // 累积引用行
+    QStringList items;  // 累积列表项（已转 HTML）
+    bool ordered = false;
+    bool inCode = false;
+    QString codeLang;
+    QStringList codeBuf;
+
+    auto flushPara = [&] {
+        if (para.isEmpty())
+            return;
+        QStringList joined;
+        for (const QString& l : para)
+            joined << inlineMd(l);
+        html += QStringLiteral("<div style=\"margin:0 0 8px 0;line-height:165%;color:%1;\">%2</div>")
+                    .arg(textCol, joined.join(QLatin1String("<br/>")));
+        para.clear();
+    };
+    auto flushQuote = [&] {
+        if (quote.isEmpty())
+            return;
+        QStringList joined;
+        for (const QString& l : quote)
+            joined << inlineMd(l);
+        html += QStringLiteral("<div style=\"margin:0 0 8px 0;padding:4px 10px;"
+                               "border-left:3px solid %1;color:%2;line-height:160%;\">%3</div>")
+                    .arg(lineCol, dimCol, joined.join(QLatin1String("<br/>")));
+        quote.clear();
+    };
+    auto flushList = [&] {
+        if (items.isEmpty())
+            return;
+        const QString tag = ordered ? QStringLiteral("ol") : QStringLiteral("ul");
+        html += QStringLiteral("<%1 style=\"margin:0 0 8px 0;-qt-list-indent:1;\">%2</%1>")
+                    .arg(tag, items.join(QString()));
+        items.clear();
+    };
+    auto flushCode = [&] {
+        QString code = codeBuf.join(QLatin1Char('\n'));
+        if (!code.endsWith(QLatin1Char('\n')))
+            code += QLatin1Char('\n');
+        const QString header =
+            codeLang.isEmpty()
+                ? QString()
+                : QStringLiteral("<tr><td style=\"padding:4px 10px;color:%1;font-size:9pt;"
+                                 "border-bottom:1px solid %2;\">%3</td></tr>")
+                      .arg(dimCol, lineCol, escapeHtml(codeLang));
+        html += QStringLiteral("<table width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" "
+                               "style=\"background-color:%1;margin:6px 0;\">%2"
+                               "<tr><td style=\"padding:8px 10px;\">"
+                               "<pre style=\"font-family:'Consolas';font-size:10pt;margin:0;"
+                               "white-space:pre-wrap;\">%3</pre></td></tr></table>")
+                    .arg(codeCol, header, escapeHtml(code));
+        codeBuf.clear();
+        codeLang.clear();
+    };
+
+    const QStringList lines = md.split(QLatin1Char('\n'));
+    for (const QString& line : lines) {
+        const QString trimmed = line.trimmed();
+
+        if (trimmed.startsWith(QStringLiteral("```"))) {
+            if (inCode) {
+                flushCode();
+                inCode = false;
+            } else {
+                flushPara();
+                flushQuote();
+                flushList();
+                inCode = true;
+                codeLang = trimmed.mid(3).trimmed();
             }
-            htmlParts << out.join(QLatin1String("<br/>"));
+            continue;
         }
+        if (inCode) {
+            codeBuf << line;
+            continue;
+        }
+        if (trimmed.isEmpty()) {
+            flushPara();
+            flushQuote();
+            flushList();
+            continue;
+        }
+        if (trimmed == QStringLiteral("---") || trimmed == QStringLiteral("***")
+            || trimmed == QStringLiteral("___")) {
+            flushPara();
+            flushQuote();
+            flushList();
+            html += QStringLiteral("<hr style=\"border:none;border-top:1px solid %1;margin:10px 0;\"/>")
+                        .arg(lineCol);
+            continue;
+        }
+        if (trimmed.startsWith(QLatin1Char('#'))) {
+            int level = 0;
+            while (level < trimmed.size() && trimmed.at(level) == QLatin1Char('#'))
+                ++level;
+            if (level >= 1 && level <= 4 && trimmed.size() > level
+                && trimmed.at(level) == QLatin1Char(' ')) {
+                flushPara();
+                flushQuote();
+                flushList();
+                static const char* kSize[] = {"15pt", "13.5pt", "12.5pt", "11.5pt"};
+                html += QStringLiteral("<div style=\"font-size:%1;font-weight:600;color:%2;"
+                                       "margin:%3 0 6px 0;line-height:150%;\">%4</div>")
+                            .arg(QString::fromLatin1(kSize[level - 1]), textCol,
+                                 level <= 2 ? QStringLiteral("12px") : QStringLiteral("9px"),
+                                 inlineMd(trimmed.mid(level + 1)));
+                continue;
+            }
+        }
+        if (trimmed.startsWith(QStringLiteral("> ")) || trimmed == QStringLiteral(">")) {
+            flushPara();
+            flushList();
+            quote << (trimmed.size() > 2 ? trimmed.mid(2) : QString());
+            continue;
+        }
+        static const QRegularExpression olRe(QStringLiteral(R"(^\s*\d+[.)]\s+)"));
+        const auto olMatch = olRe.match(line);
+        const bool isOrdered = olMatch.hasMatch();
+        const bool isBullet = trimmed.startsWith(QStringLiteral("- "))
+                              || trimmed.startsWith(QStringLiteral("* "))
+                              || trimmed.startsWith(QStringLiteral("+ "));
+        if (isBullet || isOrdered) {
+            flushPara();
+            flushQuote();
+            if (!items.isEmpty() && isOrdered != ordered)
+                flushList(); // 有序↔无序切换：先收口，避免混排进同一个列表
+            ordered = isOrdered;
+            const int indent = listIndentLevel(line);
+            const QString body = inlineMd(isOrdered ? trimmed.mid(olMatch.capturedLength()
+                                                                  - (line.size() - trimmed.size()))
+                                                    : trimmed.mid(2));
+            items << QStringLiteral("<li style=\"margin:2px 0;line-height:160%;%1\">%2</li>")
+                         .arg(indent > 0 ? QStringLiteral("margin-left:%1px;").arg(indent * 14)
+                                         : QString(),
+                              body);
+            continue;
+        }
+        flushList();
+        flushQuote();
+        para << line;
     }
-    return htmlParts.join(QString());
+    if (inCode)
+        flushCode();
+    flushPara();
+    flushQuote();
+    flushList();
+    return html;
 }
 
 // ---------- UserBubble ----------
