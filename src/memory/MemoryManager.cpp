@@ -628,4 +628,67 @@ QVector<MemoryManager::MemoryRecord> MemoryManager::recentSummaries(int n) const
         "ORDER BY updated_at DESC, id DESC LIMIT ?"), {n});
 }
 
+// ---- P1-5a 投毒防护：收尾 L1 改写内容筛查（纯函数） ----
+bool MemoryManager::l1RewriteSuspicious(const QString& next, QString* reason)
+{
+    // 外发 URL：任务收尾提炼不该往核心记忆里塞网络地址（注入/外传的经典载体）
+    static const QRegularExpression urlRe(QStringLiteral("https?://\\S+"),
+                                          QRegularExpression::CaseInsensitiveOption);
+    // 凭据特征：只抓高置信形态，避免误杀正常开发笔记
+    static const QVector<QRegularExpression> credRes = {
+        QRegularExpression(QStringLiteral("sk-[A-Za-z0-9_-]{12,}")),
+        QRegularExpression(QStringLiteral("AKIA[0-9A-Z]{16}")),
+        QRegularExpression(QStringLiteral("Bearer\\s+[A-Za-z0-9._-]{16,}"),
+                           QRegularExpression::CaseInsensitiveOption),
+        QRegularExpression(QStringLiteral("\\b[A-Fa-f0-9]{32,}\\b")),
+        QRegularExpression(QStringLiteral("[A-Za-z0-9+/]{40,}={0,2}")),
+        QRegularExpression(QStringLiteral("(api[_-]?key|secret|token|passwd|password)\\s*[=:]\\s*\\S{6,}"),
+                           QRegularExpression::CaseInsensitiveOption),
+    };
+    if (urlRe.match(next).hasMatch()) {
+        if (reason) *reason = QStringLiteral("包含外发 URL");
+        return true;
+    }
+    for (const auto& re : credRes) {
+        const auto m = re.match(next);
+        if (m.hasMatch()) {
+            if (reason) *reason = QStringLiteral("疑似凭据/密钥（%1…）").arg(m.captured(0).left(12));
+            return true;
+        }
+    }
+    return false;
+}
+
+QString MemoryManager::l1DiffSummary(const QString& oldL1, const QString& newL1)
+{
+    const QStringList oldLines = oldL1.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+    const QStringList newLines = newL1.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+    const QSet<QString> oldSet(oldLines.cbegin(), oldLines.cend());
+    const QSet<QString> newSet(newLines.cbegin(), newLines.cend());
+    int added = 0;
+    int removed = 0;
+    QString sample;
+    for (const auto& l : newLines) {
+        if (!oldSet.contains(l)) {
+            ++added;
+            if (sample.isEmpty())
+                sample = l.trimmed();
+        }
+    }
+    for (const auto& l : oldLines) {
+        if (!newSet.contains(l))
+            ++removed;
+    }
+    return QStringLiteral("旧 %1B/%2行 → 新 %3B/%4行（+%5/−%6）%7")
+        .arg(oldL1.toUtf8().size())
+        .arg(oldLines.size())
+        .arg(newL1.toUtf8().size())
+        .arg(newLines.size())
+        .arg(added)
+        .arg(removed)
+        .arg(sample.isEmpty()
+                 ? QString()
+                 : QStringLiteral("；新增首行: %1").arg(sample.left(120)));
+}
+
 } // namespace miderforge

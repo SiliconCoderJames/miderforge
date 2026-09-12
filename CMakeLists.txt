@@ -158,6 +158,7 @@ add_executable(mider_adversarial_tests
     tests/adversarial/WorkspaceBoundaryTest.cpp
     tests/adversarial/ReadChannelTest.cpp
     tests/adversarial/CommandWhitelistTest.cpp
+    tests/adversarial/PersistencePoisoningTest.cpp
 )
 target_link_libraries(mider_adversarial_tests PRIVATE mider_core doctest::doctest)
 add_test(NAME adversarial.workspace_boundary
@@ -169,6 +170,9 @@ set_tests_properties(adversarial.read_channel PROPERTIES TIMEOUT 300)
 add_test(NAME adversarial.command_whitelist
          COMMAND mider_adversarial_tests --test-suite=adversarial.command_whitelist)
 set_tests_properties(adversarial.command_whitelist PROPERTIES TIMEOUT 300)
+add_test(NAME adversarial.persistence_poisoning
+         COMMAND mider_adversarial_tests --test-suite=adversarial.persistence_poisoning)
+set_tests_properties(adversarial.persistence_poisoning PROPERTIES TIMEOUT 300)
 if(WIN32)
     # 测试 exe 的运行时 DLL（Qt 等）随构建就位，ctest 无需手工挂 PATH
     add_custom_command(TARGET mider_adversarial_tests POST_BUILD

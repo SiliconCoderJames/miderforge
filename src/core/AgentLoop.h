@@ -144,6 +144,7 @@ private:
     // 只有出现在这份清单里的编号才允许被归档（防幻觉编号误伤）
     QVector<QPair<qint64, QString>> m_injectedMemories;
     int m_toolCallsThisTask = 0;    // 自沉淀判定：工具调用 ≥5 次且成功
+    int m_boundaryDenies = 0;       // P1-5b 固化门槛：本任务越界/拒绝事件计数（beginTask 归零）
     // M4 路由与故障转移
     Router::Tier m_tier = Router::Tier::Main;
     int m_consecToolFailures = 0;   // 同一工具连续失败（升档判定）

@@ -69,6 +69,13 @@ public:
     bool rejectMemory(qint64 id);
     // Hermes 同款 L1 提示词渲染：用量头部 + 条目 § 分隔（纯函数，可单测）
     static QString renderL1ForPrompt(const QString& l1, long long tokens, long long cap);
+
+    // ---- P1-5a 持久化投毒防护（纯函数，可单测） ----
+    // 收尾 L1 改写内容筛查：命中外发 URL 或凭据特征返回 true（调用方必须拒绝落盘并
+    // 记 memory_rewrite_flagged 事件），reason 给出命中类别
+    static bool l1RewriteSuspicious(const QString& next, QString* reason);
+    // 新旧 L1 紧凑 diff 摘要（字节/行数、±行统计、新增首行样本），供 events 留痕
+    static QString l1DiffSummary(const QString& oldL1, const QString& newL1);
     bool archiveMemory(qint64 id);                 // 废弃=标记，不物理删（规格 5）
     bool updateContent(qint64 id, const QString& content);
     QVector<MemoryRecord> listAll(const QString& typeFilter = QString()) const;

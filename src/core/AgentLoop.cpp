@@ -111,6 +111,7 @@ void AgentLoop::beginTask(const QString& goal, qint64 taskId, const QJsonObject&
     m_tierEscalated = false;
     m_transportFailures = 0;
     m_failedOver = false;
+    m_boundaryDenies = 0;           // P1-5b：每任务重置越界计数
     m_history = QJsonArray();
     m_round = 0;
     m_lastReflection.clear();
@@ -518,6 +519,7 @@ void AgentLoop::onStreamFinished(const StreamResult& result) {
                                                                      : reason},
                                                   {"tool", tc.name}});
             }
+            ++m_boundaryDenies; // P1-5b：越界/拒绝计数（技能固化门槛用）
             emit toolCallFinished(callId, false,
                                   QStringLiteral("错误：操作被权限系统永久拒绝：%1").arg(target), 0);
             m_history.append(QJsonObject{
@@ -554,6 +556,8 @@ void AgentLoop::onStreamFinished(const StreamResult& result) {
 void AgentLoop::resumePermission(const QString& callId, int decision) {
     if (m_state != State::AwaitingPermission || callId != m_pendingCallId)
         return;
+    if (decision == 2)
+        ++m_boundaryDenies; // P1-5b：用户在确认卡上拒绝，同样计入越界
     if (m_deps.events)
         m_deps.events->append(decision == 2 ? QStringLiteral("permission_deny")
                                             : QStringLiteral("permission_grant"),
@@ -813,11 +817,32 @@ void AgentLoop::finalizeTaskWrites(const QJsonObject& parsed) {
         const QString sessionSummary = parsed.value("session_summary").toString();
         if (!sessionSummary.isEmpty())
             m_deps.mem->addSessionSummary(sessionSummary.left(400));
-        // ③ L1 提炼式改写（用户手改保护）
+        // ③ L1 提炼式改写（用户手改保护 + P1-5a 投毒筛查）
         const QString l1New = parsed.value("l1_new").toString();
         bool l1Rewritten = false;
-        if (!l1New.isEmpty() && !m_deps.mem->l1UserEditedRecently())
-            l1Rewritten = m_deps.mem->saveL1(l1New);
+        bool l1Poisoned = false;
+        QString l1PoisonReason;
+        if (!l1New.isEmpty() && !m_deps.mem->l1UserEditedRecently()) {
+            if (MemoryManager::l1RewriteSuspicious(l1New, &l1PoisonReason)) {
+                // 命中外发 URL / 凭据特征：拒绝落盘（旧 L1 保持不动），
+                // 事件留新旧 diff 摘要，六元组齐全
+                l1Poisoned = true;
+                if (m_deps.events)
+                    m_deps.events->append(QStringLiteral("memory_rewrite_flagged"), m_taskId,
+                                          QJsonObject{{"actor", "agent"},
+                                                      {"authorizer", "memory_guard"},
+                                                      {"target", "core.md"},
+                                                      {"operation", "l1_rewrite"},
+                                                      {"outcome", "blocked"},
+                                                      {"reason", l1PoisonReason},
+                                                      {"diff", MemoryManager::l1DiffSummary(
+                                                                   m_deps.mem->loadL1(), l1New)}});
+                if (auto lg = logutil::logger())
+                    lg->warn("L1 改写被投毒筛查拦截：{}", l1PoisonReason.toStdString());
+            } else {
+                l1Rewritten = m_deps.mem->saveL1(l1New);
+            }
+        }
         // ⑤ 失败教训
         const QString lesson = parsed.value("lesson").toString();
         if (!ok && !lesson.isEmpty())
@@ -843,13 +868,15 @@ void AgentLoop::finalizeTaskWrites(const QJsonObject& parsed) {
             }
         } else if (!m_injectedMemories.isEmpty() && !l1Rewritten) {
             const QString why = l1New.isEmpty() ? QStringLiteral("模型未给出 l1_new")
+                                : l1Poisoned    ? QStringLiteral("投毒筛查拦截")
                                                 : QStringLiteral("检测到用户手改");
             if (auto lg = logutil::logger())
                 lg->info("L1 未改写（{}），跳过一致性失效归档以免丢失旧记忆", why.toStdString());
             if (m_deps.events)
                 m_deps.events->append(QStringLiteral("memory_invalidate_skipped"), m_taskId,
                                       QJsonObject{{"reason", l1New.isEmpty() ? "no_l1_new"
-                                                                             : "user_edited"}});
+                                                        : l1Poisoned ? "poisoned"
+                                                                     : "user_edited"}});
         }
         // ⑤c L1 容量纪律（存储体系：每层有容量上限）。v1 软约束：提示词要求控制 + 超限告警
         const long long used = m_deps.mem->l1Tokens();
@@ -867,10 +894,28 @@ void AgentLoop::finalizeTaskWrites(const QJsonObject& parsed) {
     const QString skillDesc = parsed.value("skill_description").toString();
     const QString skillMd = parsed.value("skill_md").toString();
     if (ok && m_deps.skills && !skillName.isEmpty() && !skillMd.isEmpty()) {
-        if (m_deps.events)
-            m_deps.events->append(QStringLiteral("skill_gen"), m_taskId,
-                                  QJsonObject{{"skill", skillName}});
-        emit skillProposed(skillName, skillDesc, skillMd);
+        if (m_boundaryDenies > 0) {
+            // P1-5b 固化门槛：任务虽"成功"，但期间发生过越界/拒绝——
+            // 把失败路径沉淀成技能等于教坏下一代任务，拒绝并留审计
+            if (m_deps.events)
+                m_deps.events->append(QStringLiteral("skill_solidify_denied"), m_taskId,
+                                      QJsonObject{{"actor", "agent"},
+                                                  {"authorizer", "skill_guard"},
+                                                  {"target", skillName},
+                                                  {"operation", "skill_solidify"},
+                                                  {"outcome", "blocked"},
+                                                  {"reason", QStringLiteral("任务期间发生 %1 次越界/拒绝事件")
+                                                                 .arg(m_boundaryDenies)},
+                                                  {"boundary_denies", double(m_boundaryDenies)}});
+            if (auto lg = logutil::logger())
+                lg->warn("技能固化被拒绝：{}（本任务 {} 次越界事件）", skillName.toStdString(),
+                         m_boundaryDenies);
+        } else {
+            if (m_deps.events)
+                m_deps.events->append(QStringLiteral("skill_gen"), m_taskId,
+                                      QJsonObject{{"skill", skillName}});
+            emit skillProposed(skillName, skillDesc, skillMd);
+        }
     }
     // ⑥ 邮件+托盘通知在 M4 接入；此处先写审计
     if (m_deps.events)
@@ -917,6 +962,7 @@ QString AgentLoop::rerunTool(const QString& toolName, const QString& argsJson, b
                                                  "手动重跑无法弹确认卡片；请切到 Full Access，"
                                                  "或先在任务流中选「本会话总是允许」")
                                       .arg(permissionModeName(AppContext::instance().permissionMode));
+        ++m_boundaryDenies; // P1-5b：手动重跑被拒同样计入越界
         if (m_deps.events) {
             // P0-2：读通道拒绝记 read_denied（与自动执行同口径，六元组齐全）
             const bool readChannel = kind == PermissionGate::Kind::ReadFile;
@@ -1005,6 +1051,23 @@ void AgentLoop::handleTransportFailure(const QString& error, int httpCode) {
         if (m_deps.events)
             m_deps.events->append(QStringLiteral("provider_switch"), m_taskId,
                                   QJsonObject{{"reason", error}});
+        // P1-5c failover 权限联动：供应商已切换（新端点未被用户审阅过）→
+        // Full Access 自动降为 Auto Edit，事件留六元组。
+        // 注：AppContext 非 QObject，设置页组合框在下次打开时读到新值（UI 即时刷新留 Roadmap）。
+        if (AppContext::instance().permissionMode == PermissionMode::FullAccess) {
+            AppContext::instance().permissionMode = PermissionMode::AutoEdit;
+            if (m_deps.events)
+                m_deps.events->append(QStringLiteral("permission_downgrade_on_failover"),
+                                      m_taskId,
+                                      QJsonObject{{"actor", "system"},
+                                                  {"authorizer", "permission_gate"},
+                                                  {"target", "app_context.permission_mode"},
+                                                  {"operation", "downgrade"},
+                                                  {"outcome", "full_access->auto_edit"},
+                                                  {"reason", error}});
+            if (auto lg = logutil::logger())
+                lg->warn("故障转移联动：权限档 Full Access → Auto Edit");
+        }
         // 自动重试本轮：任务仍可继续
         m_running = true;
         runRound();
