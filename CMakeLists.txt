@@ -53,6 +53,7 @@ add_library(mider_core STATIC
     src/util/JsonExtract.h     src/util/JsonExtract.cpp
     src/util/Log.h             src/util/Log.cpp
     src/util/NetGuard.h        src/util/NetGuard.cpp
+    src/util/PathReal.h        src/util/PathReal.cpp
     src/util/Tokens.h          src/util/Tokens.cpp
 )
 target_include_directories(mider_core PUBLIC
@@ -148,6 +149,24 @@ endif()
 # 超时 5 分钟兜底防挂起（mock 流式重试类用例最坏耗时数十秒）
 add_test(NAME mider_unit_tests COMMAND mider_tests)
 set_tests_properties(mider_unit_tests PROPERTIES TIMEOUT 300)
+
+# P0 对抗测试（安全回归资产，tests/adversarial/ 用例不许删、不许 skip）：独立可执行、
+# 按套件拆独立 ctest 项（名字一律含 adversarial，供 ctest -R adversarial 收口）
+add_executable(mider_adversarial_tests
+    tests/adversarial/adversarial_main.cpp
+    tests/adversarial/WorkspaceBoundaryTest.cpp
+)
+target_link_libraries(mider_adversarial_tests PRIVATE mider_core doctest::doctest)
+add_test(NAME adversarial.workspace_boundary
+         COMMAND mider_adversarial_tests --test-suite=adversarial.workspace_boundary)
+set_tests_properties(adversarial.workspace_boundary PROPERTIES TIMEOUT 300)
+if(WIN32)
+    # 测试 exe 的运行时 DLL（Qt 等）随构建就位，ctest 无需手工挂 PATH
+    add_custom_command(TARGET mider_adversarial_tests POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_RUNTIME_DLLS:mider_adversarial_tests> $<TARGET_FILE_DIR:mider_adversarial_tests>
+        COMMAND_EXPAND_LISTS)
+endif()
 if(WIN32)
     # 测试 exe 的运行时 DLL（Qt 等）随构建就位，ctest 无需手工挂 PATH
     add_custom_command(TARGET mider_tests POST_BUILD

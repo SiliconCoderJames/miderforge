@@ -31,7 +31,6 @@ public:
     void resetSessionGrants();
 
 private:
-    static bool pathInWorkspace(const QString& absPath, const QString& workspaceRoot);
     bool matchesForbiddenPath(const QString& path) const;
 
     bool m_alwaysAllowed[4] = {false, false, false, false};

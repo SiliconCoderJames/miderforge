@@ -3,6 +3,7 @@
 #include "core/AppContext.h"
 #include "tools/ToolRegistry.h"
 #include "util/DiffUtil.h"
+#include "util/PathReal.h"
 #include <QDir>
 #include <QDirIterator>
 #include <QFile>
@@ -19,12 +20,15 @@ static constexpr qint64 kMaxWriteBytes = 4 * 1024 * 1024; // 决策: 单次写�
 static constexpr int kMaxSearchResults = 200;             // 决策: 搜索结果封顶
 
 QString resolveWorkspacePath(const QString& rawPath, const QString& workspaceRoot) {
+    // P0-1：不做 QDir::cleanPath 词法折叠——"ws/junction/../x" 会被折叠成区内的 ws/x，
+    // 让权限门与落盘复核都在对一条与 OS 语义不同的路径做判定。这里只归一分隔符：
+    // ".." 交给 resolveReal 逐组件真实解析（判定），交给 QFile 原生语义（执行）
     const QString trimmed = rawPath.trimmed();
     if (QFileInfo(trimmed).isAbsolute() || trimmed.contains(QLatin1Char(':')))
-        return QDir::cleanPath(trimmed);
+        return QDir::fromNativeSeparators(trimmed);
     if (workspaceRoot.isEmpty())
-        return QDir::cleanPath(trimmed);
-    return QDir::cleanPath(workspaceRoot + QLatin1Char('/') + trimmed);
+        return QDir::fromNativeSeparators(trimmed);
+    return QDir::fromNativeSeparators(workspaceRoot + QLatin1Char('/') + trimmed);
 }
 
 static QString envelope(const QJsonObject& obj) {
@@ -107,6 +111,15 @@ static void registerWriteFile(ToolRegistry& reg) {
         const QString content = args.value("content").toString();
         if (path.isEmpty()) {
             if (err) *err = QStringLiteral("path 参数为空");
+            return {};
+        }
+        // P0-1 纵深防御：落盘前按解析后的真实路径复核工作区边界。权限门已判一次；
+        // 这里独立再拦一次——未来任何绕过权限门的调用点，junction/symlink 越界写也到不了磁盘
+        //（tests/adversarial/WorkspaceBoundaryTest 的"绕过权限门直调 handler"用例验证本层）
+        const QString wsRoot = AppContext::instance().workspaceRoot;
+        if (!wsRoot.isEmpty()
+            && !pathreal::isInsideOrEqual(pathreal::resolveReal(path), pathreal::resolveReal(wsRoot))) {
+            if (err) *err = QStringLiteral("写入被拒绝：目标解析后的真实路径不在工作区内（%1）").arg(path);
             return {};
         }
         const qint64 bytes = content.toUtf8().size();

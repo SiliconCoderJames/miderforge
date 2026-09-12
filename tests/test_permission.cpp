@@ -1,12 +1,30 @@
-// 权限门单测（规格 15：权限门路径判定必须可脱离 GUI 测试）
+// 权限门单测（规格 15：权限门路径判定必须可脱离 GUI 测试）。
+// P0-1 起路径判定基于解析 reparse point 后的真实路径：凡涉及区内/区外写判定的用例，
+// 工作区一律用 QTemporaryDir 真实目录（fictitious 路径解析不了会按越界 fail-closed，不再适用）。
+// reparse point 越界本体在 tests/adversarial/WorkspaceBoundaryTest.cpp（真实创建 junction/symlink）。
 #include "core/AppContext.h"
 #include "tools/PermissionGate.h"
+#include <QDir>
+#include <QTemporaryDir>
 #include <doctest/doctest.h>
 
 using miderforge::PermissionGate;
 using miderforge::PermissionMode;
 
+// 仅用于不触达路径解析的用例（读档位短路、名字清单、命令解析）
 static const QString WS = QStringLiteral("C:/ws/workspace");
+
+// 真实工作区基座：区内/区外写判定、递归删除放行等用例共用
+struct RealWs {
+    QTemporaryDir tmp;
+    QString ws;
+    bool ready = false;
+    RealWs() {
+        ws = tmp.path() + QStringLiteral("/workspace");
+        ready = tmp.isValid() && QDir().mkpath(ws) && QDir().mkpath(ws + QStringLiteral("/src"))
+                && QDir().mkpath(ws + QStringLiteral("/build"));
+    }
+};
 
 TEST_CASE("读文件三档均自动放行") {
     PermissionGate gate;
@@ -28,15 +46,17 @@ TEST_CASE("Suggest：写文件走提案确认，命令与越界写不放行") {
 
 TEST_CASE("Auto Edit：工作区内写自动通过，区外直接拒绝") {
     PermissionGate gate;
+    RealWs rws;
+    REQUIRE(rws.ready);
     CHECK(gate.evaluate(PermissionMode::AutoEdit, PermissionGate::Kind::WriteFile,
-                        WS + QStringLiteral("/src/main.cpp"), WS)
+                        rws.ws + QStringLiteral("/src/main.cpp"), rws.ws)
           == PermissionGate::Decision::Allowed);
     CHECK(gate.evaluate(PermissionMode::AutoEdit, PermissionGate::Kind::WriteFile,
-                        QStringLiteral("C:/Windows/system32/evil.dll"), WS)
+                        QStringLiteral("C:/Windows/system32/evil.dll"), rws.ws)
           == PermissionGate::Decision::Denied);
-    // 相对路径分隔符差异（反斜杠）也应判定为区内
+    // 反斜杠路径（同一真实目录）也应判定为区内
     CHECK(gate.evaluate(PermissionMode::AutoEdit, PermissionGate::Kind::WriteFile,
-                        QStringLiteral("C:\\ws\\workspace\\src\\a.cpp"), WS)
+                        QDir::toNativeSeparators(rws.ws + QStringLiteral("/src/a.cpp")), rws.ws)
           == PermissionGate::Decision::Allowed);
 }
 
@@ -63,20 +83,24 @@ TEST_CASE("永不解禁清单：任何档位直接拒绝") {
 
 TEST_CASE("永不解禁清单：git push 保护分支与磁盘级操作") {
     PermissionGate gate;
+    RealWs rws;
+    REQUIRE(rws.ready);
     // feature-x 非保护分支：不命中硬拒绝
     CHECK(gate.hardDenyReason(PermissionGate::Kind::RunCommand,
-                              QStringLiteral("git push origin feature-x"), WS).isEmpty());
+                              QStringLiteral("git push origin feature-x"), rws.ws).isEmpty());
     CHECK_FALSE(gate.hardDenyReason(PermissionGate::Kind::RunCommand,
-                                    QStringLiteral("git push origin main"), WS).isEmpty());
+                                    QStringLiteral("git push origin main"), rws.ws).isEmpty());
     CHECK_FALSE(gate.hardDenyReason(PermissionGate::Kind::RunCommand,
-                                    QStringLiteral("git push origin master"), WS).isEmpty());
+                                    QStringLiteral("git push origin master"), rws.ws).isEmpty());
     CHECK_FALSE(gate.hardDenyReason(PermissionGate::Kind::RunCommand,
-                                    QStringLiteral("format D:"), WS).isEmpty());
+                                    QStringLiteral("format D:"), rws.ws).isEmpty());
     CHECK_FALSE(gate.hardDenyReason(PermissionGate::Kind::RunCommand,
-                                    QStringLiteral("rd /s C:\\Windows"), WS).isEmpty());
+                                    QStringLiteral("rd /s C:\\Windows"), rws.ws).isEmpty());
     // 工作区内递归删除放行（build 清理场景）
     CHECK(gate.hardDenyReason(PermissionGate::Kind::RunCommand,
-                              QStringLiteral("rd /s C:\\ws\\workspace\\build"), WS).isEmpty());
+                              QStringLiteral("rd /s ")
+                                  + QDir::toNativeSeparators(rws.ws + QStringLiteral("/build")),
+                              rws.ws).isEmpty());
 }
 
 TEST_CASE("命令白名单：不在名单内的首词直接拒绝") {
@@ -142,6 +166,8 @@ TEST_CASE("会话内总是允许：网络通道授予独立生效（权限卡片
 
 TEST_CASE("对抗：递归删除变体全部命中硬拒绝（rm -rf/-fr/--recursive/-Recurse/cmake -E rm）") {
     PermissionGate gate;
+    RealWs rws;
+    REQUIRE(rws.ready);
     const QStringList outsideRm = {
         QStringLiteral("rm -rf C:/Users"),                    // 旧正则 -r\b 漏拦的经典变体
         QStringLiteral("rm -fr C:/Users"),
@@ -153,14 +179,18 @@ TEST_CASE("对抗：递归删除变体全部命中硬拒绝（rm -rf/-fr/--recur
         QStringLiteral("cmake -E rm -rf C:/Users"),           // 白名单首词的递归删除通道
     };
     for (const QString& c : outsideRm) {
-        CHECK_MESSAGE(!gate.hardDenyReason(PermissionGate::Kind::RunCommand, c, WS).isEmpty(),
+        CHECK_MESSAGE(!gate.hardDenyReason(PermissionGate::Kind::RunCommand, c, rws.ws).isEmpty(),
                       qPrintable(c));
     }
     // 工作区内递归删除保持放行（build 清理场景）；正斜杠路径同样识别
     CHECK(gate.hardDenyReason(PermissionGate::Kind::RunCommand,
-                              QStringLiteral("cmake -E rm -rf C:/ws/workspace/build"), WS).isEmpty());
+                              QStringLiteral("cmake -E rm -rf ")
+                                  + QDir::toNativeSeparators(rws.ws + QStringLiteral("/build")),
+                              rws.ws).isEmpty());
     CHECK(gate.hardDenyReason(PermissionGate::Kind::RunCommand,
-                              QStringLiteral("rd /s C:\\ws\\workspace\\build"), WS).isEmpty());
+                              QStringLiteral("rd /s ")
+                                  + QDir::toNativeSeparators(rws.ws + QStringLiteral("/build")),
+                              rws.ws).isEmpty());
 }
 
 TEST_CASE("对抗：git push 保护分支绕过变体全部命中（--force/-u/HEAD:main/refs/heads/+main）") {
@@ -196,14 +226,17 @@ TEST_CASE("对抗：命令首词与执行侧用同一解析器（引号包裹的
 
 TEST_CASE("Full Access 写文件同样受工作区边界约束") {
     PermissionGate gate;
+    RealWs rws;
+    REQUIRE(rws.ready);
     CHECK(gate.evaluate(PermissionMode::FullAccess, PermissionGate::Kind::WriteFile,
-                        WS + QStringLiteral("/src/a.cpp"), WS)
+                        rws.ws + QStringLiteral("/src/a.cpp"), rws.ws)
           == PermissionGate::Decision::Allowed);
     CHECK(gate.evaluate(PermissionMode::FullAccess, PermissionGate::Kind::WriteFile,
-                        QStringLiteral("C:/Windows/System32/evil.dll"), WS)
+                        QStringLiteral("C:/Windows/System32/evil.dll"), rws.ws)
           == PermissionGate::Decision::Denied);
+    // 跨盘目标：盘不存在则解析失败，同样按越界 fail-closed
     CHECK(gate.evaluate(PermissionMode::FullAccess, PermissionGate::Kind::WriteFile,
-                        QStringLiteral("D:/other/repo/a.cpp"), WS)
+                        QStringLiteral("D:/other/repo/a.cpp"), rws.ws)
           == PermissionGate::Decision::Denied);
 }
 

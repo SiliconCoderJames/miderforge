@@ -1,5 +1,6 @@
 // 权限门实现
 #include "tools/PermissionGate.h"
+#include "util/PathReal.h"
 #include <QDir>
 #include <QProcess>
 #include <QRegularExpression>
@@ -21,15 +22,6 @@ QStringList PermissionGate::networkWhitelist() {
 void PermissionGate::resetSessionGrants() {
     for (bool& b : m_alwaysAllowed)
         b = false;
-}
-
-bool PermissionGate::pathInWorkspace(const QString& absPath, const QString& workspaceRoot) {
-    if (workspaceRoot.isEmpty())
-        return false;
-    const QString root = QDir::cleanPath(workspaceRoot) + QLatin1Char('/');
-    const QString p = QDir::cleanPath(absPath);
-    return p.startsWith(root, Qt::CaseInsensitive)
-           || p.compare(QDir::cleanPath(workspaceRoot), Qt::CaseInsensitive) == 0;
 }
 
 bool PermissionGate::matchesForbiddenPath(const QString& path) const {
@@ -191,7 +183,9 @@ QString PermissionGate::hardDenyReason(PermissionGate::Kind kind, const QString&
             auto it = absPath.globalMatch(cmd);
             while (it.hasNext()) {
                 const QString p = it.next().captured(0);
-                if (!pathInWorkspace(p, workspaceRoot))
+                // P0-1：按解析 reparse point 后的真实路径判定（junction/symlink 指向区外同样命中）
+                if (!pathreal::isInsideOrEqual(pathreal::resolveReal(p),
+                                               pathreal::resolveReal(workspaceRoot)))
                     return QStringLiteral("工作区外递归删除被永久禁止：%1").arg(p);
             }
         }
@@ -215,8 +209,12 @@ PermissionGate::Decision PermissionGate::evaluate(PermissionMode mode, Permissio
         if (mode == PermissionMode::Suggest)
             return Decision::NeedsConfirm; // 仅生成提案需确认
         // AutoEdit 与 FullAccess 一致：写入仅限工作区（最小权限；FullAccess 的“全”
-        // 体现在命令/网络自动放行，而非放开写路径边界）
-        return pathInWorkspace(target, workspaceRoot) ? Decision::Allowed : Decision::Denied;
+        // 体现在命令/网络自动放行，而非放开写路径边界）。
+        // P0-1：判定基于解析 reparse point 后的真实路径；解析失败按越界处理（fail-closed）
+        return pathreal::isInsideOrEqual(pathreal::resolveReal(target),
+                                         pathreal::resolveReal(workspaceRoot))
+                   ? Decision::Allowed
+                   : Decision::Denied;
     }
 
     if (kind == Kind::RunCommand) {
