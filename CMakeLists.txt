@@ -170,6 +170,7 @@ add_executable(mider_adversarial_tests
     tests/adversarial/ReadChannelTest.cpp
     tests/adversarial/CommandWhitelistTest.cpp
     tests/adversarial/PersistencePoisoningTest.cpp
+    tests/adversarial/WriteAcceptanceTest.cpp
 )
 target_link_libraries(mider_adversarial_tests PRIVATE mider_core doctest::doctest)
 add_test(NAME adversarial.workspace_boundary
@@ -184,6 +185,10 @@ set_tests_properties(adversarial.command_whitelist PROPERTIES TIMEOUT 300)
 add_test(NAME adversarial.persistence_poisoning
          COMMAND mider_adversarial_tests --test-suite=adversarial.persistence_poisoning)
 set_tests_properties(adversarial.persistence_poisoning PROPERTIES TIMEOUT 300)
+# 产品验收（复用同一二进制的 mock-SSE/AgentLoop 基建）：写文件能力端到端
+add_test(NAME acceptance.write_file
+         COMMAND mider_adversarial_tests --test-suite=acceptance.write_file)
+set_tests_properties(acceptance.write_file PROPERTIES TIMEOUT 300)
 if(WIN32)
     # 测试 exe 的运行时 DLL（Qt 等）随构建就位，ctest 无需手工挂 PATH
     add_custom_command(TARGET mider_adversarial_tests POST_BUILD
