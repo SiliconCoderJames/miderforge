@@ -20,14 +20,17 @@ namespace {
 // 分组小标题（Codex 的 "Projects" / "Recents" 同款：小号、暗色、非交互）
 QLabel* sectionLabel(const QString& text, QWidget* parent) {
     auto* l = new QLabel(text, parent);
-    l->setStyleSheet(QStringLiteral("color:%1;font-size:8pt;font-weight:bold;padding:8px 8px 2px 8px;")
+    l->setStyleSheet(QStringLiteral("color:%1;font-size:9.5pt;font-weight:bold;padding:8px 8px 2px 8px;")
                          .arg(theme::colors::textDim().name()));
     return l;
 }
 } // namespace
 
 SidebarView::SidebarView(QWidget* parent) : QWidget(parent) {
-    setFixedWidth(260);
+    setFixedWidth(theme::metrics::sidebarWidth);
+    // 裸 QWidget 必须开 WA_StyledBackground，样式表里的 background/border 才会绘制；
+    // 否则侧栏底色与右描边都不会出现（分隔线另由 MainWindow 的显式 QFrame 兜底）
+    setAttribute(Qt::WA_StyledBackground, true);
     setStyleSheet(QStringLiteral("SidebarView{background-color:%1;border-right:1px solid %2;}")
                       .arg(theme::colors::panel().name(), theme::colors::line().name()));
     auto* lay = new QVBoxLayout(this);
@@ -59,7 +62,7 @@ SidebarView::SidebarView(QWidget* parent) : QWidget(parent) {
 
     auto* tagline = new QLabel(theme::brandTagline(), this);
     tagline->setContentsMargins(8, 0, 0, 0);
-    tagline->setStyleSheet(QStringLiteral("color:%1;font-size:8pt;letter-spacing:1px;")
+    tagline->setStyleSheet(QStringLiteral("color:%1;font-size:9.5pt;letter-spacing:1px;")
                                .arg(theme::colors::textDim().name()));
     lay->addWidget(tagline);
 
@@ -75,12 +78,12 @@ SidebarView::SidebarView(QWidget* parent) : QWidget(parent) {
     // ---- 搜索 / 新建（Codex 的 "New chat / 搜索" 两条置顶行） ----
     // 搜索做成可见行而不只是 Ctrl+K：快捷键没有可见入口，新用户发现不了
     auto* searchBtn = new QPushButton(QStringLiteral("🔍  搜索"), this);
-    searchBtn->setFixedHeight(30);
+    searchBtn->setFixedHeight(theme::metrics::rowDefault);
     searchBtn->setCursor(Qt::PointingHandCursor);
     searchBtn->setToolTip(QStringLiteral("搜索功能页、会话与动作（Ctrl+K）"));
     searchBtn->setStyleSheet(QStringLiteral(
         "QPushButton{background:transparent;border:none;border-radius:6px;text-align:left;"
-        "padding-left:10px;color:%1;font-size:9pt;}"
+        "padding-left:10px;color:%1;font-size:10pt;}"
         "QPushButton:hover{background-color:%2;}"
         "QPushButton:focus{border:1px solid %3;}")
                                  .arg(theme::colors::text().name(), theme::colors::window().name(),
@@ -90,7 +93,7 @@ SidebarView::SidebarView(QWidget* parent) : QWidget(parent) {
 
     m_newBtn = new QPushButton(QStringLiteral("＋  新会话"), this);
     m_newBtn->setObjectName(QStringLiteral("primaryBtn"));
-    m_newBtn->setFixedHeight(36);
+    m_newBtn->setFixedHeight(theme::metrics::rowPrimary);
     m_newBtn->setCursor(Qt::PointingHandCursor);
     m_newBtn->setToolTip(QStringLiteral("新建会话（Ctrl+N）"));
     connect(m_newBtn, &QPushButton::clicked, this, &SidebarView::newSessionRequested);
@@ -104,10 +107,10 @@ SidebarView::SidebarView(QWidget* parent) : QWidget(parent) {
     m_search = new QLineEdit(this);
     m_search->setPlaceholderText(QStringLiteral("搜索会话…"));
     m_search->setClearButtonEnabled(true);
-    m_search->setFixedHeight(28);
+    m_search->setFixedHeight(theme::metrics::rowDefault);
     m_search->setStyleSheet(QStringLiteral(
         "QLineEdit{background-color:%1;border:1px solid %2;border-radius:6px;"
-        "padding:2px 8px;font-size:8.5pt;color:%3;}"
+        "padding:2px 8px;font-size:10pt;color:%3;}"
         "QLineEdit:focus{border-color:%4;}")
                                 .arg(theme::colors::window().name(), theme::colors::line().name(),
                                      theme::colors::text().name(), theme::colors::accent().name()));
@@ -116,13 +119,13 @@ SidebarView::SidebarView(QWidget* parent) : QWidget(parent) {
     lay->addWidget(m_search);
 
     m_sessionEmpty = new QLabel(QStringLiteral("暂无会话"), this);
-    m_sessionEmpty->setStyleSheet(QStringLiteral("color:%1;font-size:8pt;padding:2px 8px;")
+    m_sessionEmpty->setStyleSheet(QStringLiteral("color:%1;font-size:9.5pt;padding:2px 8px;")
                                       .arg(theme::colors::textDim().name()));
     lay->addWidget(m_sessionEmpty);
 
     m_sessionList = new QListWidget(this);
     m_sessionList->setStyleSheet(QStringLiteral(
-        "QListWidget{background:transparent;border:none;font-size:8pt;outline:none;}"
+        "QListWidget{background:transparent;border:none;font-size:9.5pt;outline:none;}"
         "QListWidget::item{height:34px;border-radius:6px;padding-left:8px;color:%2;margin:1px 0;}"
         "QListWidget::item:hover{background-color:%1;}"
         "QListWidget::item:selected{background-color:%3;color:white;}")
@@ -151,12 +154,12 @@ SidebarView::SidebarView(QWidget* parent) : QWidget(parent) {
     // ---- 底部：设置 + L1 占用（会话列表拿满剩余高度） ----
     lay->addSpacing(4);
     auto* settingsBtn = new QPushButton(QStringLiteral("⚙  设置"), this);
-    settingsBtn->setFixedHeight(30);
+    settingsBtn->setFixedHeight(theme::metrics::rowDefault);
     settingsBtn->setCursor(Qt::PointingHandCursor);
     settingsBtn->setToolTip(QStringLiteral("供应商 / 记忆 / 技能库 / 任务队列 / 审计日志（Ctrl+,）"));
     settingsBtn->setStyleSheet(QStringLiteral(
         "QPushButton{background:transparent;border:none;border-radius:6px;text-align:left;"
-        "padding-left:10px;color:%1;font-size:9pt;}"
+        "padding-left:10px;color:%1;font-size:10pt;}"
         "QPushButton:hover{background-color:%2;}"
         "QPushButton:focus{border:1px solid %3;}")
                                    .arg(theme::colors::text().name(), theme::colors::window().name(),
@@ -169,7 +172,7 @@ SidebarView::SidebarView(QWidget* parent) : QWidget(parent) {
     l1Lay->setContentsMargins(6, 6, 6, 0);
     l1Lay->setSpacing(3);
     m_l1Label = new QLabel(l1Row);
-    m_l1Label->setStyleSheet(QStringLiteral("color:%1;font-size:8pt;").arg(theme::colors::textDim().name()));
+    m_l1Label->setStyleSheet(QStringLiteral("color:%1;font-size:9.5pt;").arg(theme::colors::textDim().name()));
     m_l1Bar = new QProgressBar(l1Row);
     m_l1Bar->setRange(0, 100);
     m_l1Bar->setValue(0);

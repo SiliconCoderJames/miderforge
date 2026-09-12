@@ -17,7 +17,9 @@
 #include <QLineEdit>
 #include <QListWidget>
 #include <QMessageBox>
+#include <QFrame>
 #include <QPushButton>
+#include <QScrollArea>
 #include <QSet>
 #include <QSpinBox>
 #include <QStackedWidget>
@@ -83,7 +85,7 @@ SettingsDialog::SettingsDialog(ProviderManager* pm, EmailNotifier* mail, const P
     backBtn->setCursor(Qt::PointingHandCursor);
     backBtn->setStyleSheet(QStringLiteral(
         "QPushButton{background:transparent;border:none;text-align:left;padding-left:6px;"
-        "color:%1;font-size:9.5pt;}"
+        "color:%1;font-size:10.5pt;}"
         "QPushButton:hover{background-color:%2;border-radius:6px;}")
                                .arg(theme::colors::text().name(), theme::colors::panel().name()));
     connect(backBtn, &QPushButton::clicked, this, &SettingsDialog::closeRequested);
@@ -97,7 +99,7 @@ SettingsDialog::SettingsDialog(ProviderManager* pm, EmailNotifier* mail, const P
     m_search->setFixedHeight(30);
     m_search->setStyleSheet(QStringLiteral(
         "QLineEdit{background-color:%1;border:1px solid %2;border-radius:6px;"
-        "padding:2px 8px;font-size:9pt;color:%3;}"
+        "padding:2px 8px;font-size:10pt;color:%3;}"
         "QLineEdit:focus{border-color:%4;}")
                                 .arg(theme::colors::panel().name(), theme::colors::line().name(),
                                      theme::colors::text().name(), theme::colors::accent().name()));
@@ -106,7 +108,7 @@ SettingsDialog::SettingsDialog(ProviderManager* pm, EmailNotifier* mail, const P
     m_navLay->addSpacing(6);
 
     m_emptyHint = new QLabel(QStringLiteral("没有匹配的设置项"), m_navHost);
-    m_emptyHint->setStyleSheet(QStringLiteral("color:%1;font-size:9pt;padding:8px 6px;")
+    m_emptyHint->setStyleSheet(QStringLiteral("color:%1;font-size:10pt;padding:8px 6px;")
                                    .arg(theme::colors::textDim().name()));
     m_emptyHint->setVisible(false);
     m_navLay->addWidget(m_emptyHint);
@@ -146,8 +148,16 @@ SettingsDialog::SettingsDialog(ProviderManager* pm, EmailNotifier* mail, const P
     auto* lay = new QHBoxLayout(stackRow);
     lay->setContentsMargins(0, 0, 0, 0);
     lay->setSpacing(0);
+    // 内容页套滚动区（关键修复）：设置页内部含宽表格与长文本，其 minimumSizeHint 会沿着
+    // 布局一路顶成主窗口的最小宽度——设置页实测 minW=1222px，窗口因此被撑得比屏幕还宽，
+    // 最左边的会话栏第一个被挤出可视区（实机反馈"点设置后左边会话列表消失、设置铺满左侧"）。
+    // 套上 widgetResizable 滚动区后，宽度不足时出水平滚动条，窗口最小宽度不再被设置页绑架。
+    auto* pageScroll = new QScrollArea(this);
+    pageScroll->setWidgetResizable(true);
+    pageScroll->setFrameShape(QFrame::NoFrame);
+    pageScroll->setWidget(m_pages);
     lay->addWidget(m_navHost);
-    lay->addWidget(m_pages, 1);
+    lay->addWidget(pageScroll, 1);
 
     auto* bottom = new QHBoxLayout();
     bottom->setContentsMargins(12, 8, 12, 10);
@@ -180,7 +190,7 @@ SettingsDialog::SettingsDialog(ProviderManager* pm, EmailNotifier* mail, const P
 // 分组标题：小号、暗色、非交互（参考图的 "Personal / Integrations / Coding" 同款）
 void SettingsDialog::addNavSection(const QString& title) {
     auto* l = new QLabel(title, m_navHost);
-    l->setStyleSheet(QStringLiteral("color:%1;font-size:8pt;font-weight:bold;padding:10px 6px 2px 6px;")
+    l->setStyleSheet(QStringLiteral("color:%1;font-size:9.5pt;font-weight:bold;padding:10px 6px 2px 6px;")
                          .arg(theme::colors::textDim().name()));
     m_navLay->addWidget(l);
     m_sectionLabels.push_back({title, l});
@@ -196,7 +206,7 @@ int SettingsDialog::addNavEntry(const QString& icon, const QString& title, const
     btn->setToolTip(title);
     btn->setStyleSheet(QStringLiteral(
         "QPushButton{background:transparent;border:none;border-radius:6px;text-align:left;"
-        "padding-left:10px;color:%1;font-size:9.5pt;}"
+        "padding-left:10px;color:%1;font-size:10.5pt;}"
         "QPushButton:hover{background-color:%2;}"
         "QPushButton:checked{background-color:%3;color:white;}"
         "QPushButton:focus{border:1px solid %3;}")
@@ -255,8 +265,12 @@ QWidget* SettingsDialog::buildGeneralPage() {
                            QStringLiteral("Full Access（全自动，网络白名单放行）")});
     m_permCombo->setCurrentIndex(int(AppContext::instance().permissionMode));
     form->addRow(QStringLiteral("权限模式"), m_permCombo);
-    form->addRow(QString(), new QLabel(
-        QStringLiteral("与 Codex 同源权限模型对齐；Composer 底行可随时切换，两侧始终同一状态。"), w));
+    // 说明性长文本一律自动换行：不换行时 QLabel 的最小宽度 = 整行文本宽度，
+    // 会沿布局把设置页、进而主窗口的最小宽度顶到屏幕之外
+    auto* permHint = new QLabel(
+        QStringLiteral("与 Codex 同源权限模型对齐；Composer 底行可随时切换，两侧始终同一状态。"), w);
+    permHint->setWordWrap(true);
+    form->addRow(QString(), permHint);
 
     auto* langLabel = new QLabel(QStringLiteral("简体中文（内置文案），随系统输入法。"), w);
     form->addRow(QStringLiteral("语言"), langLabel);
@@ -274,9 +288,11 @@ QWidget* SettingsDialog::buildAppearancePage() {
         m_paletteCombo->addItem(QString::fromUtf8(pal.zh));
     m_paletteCombo->setCurrentIndex(theme::paletteIndex());
     form->addRow(QStringLiteral("主题皮肤"), m_paletteCombo);
-    form->addRow(QString(), new QLabel(
+    auto* themeHint = new QLabel(
         QStringLiteral("四套色板：品牌「熔炉·铁灰炉火」为默认，另有 Codex/VS/Claude 致敬皮肤。\n"
-                       "保存后**重启应用**完全生效；品牌行 ⌄ 菜单或 Ctrl+Shift+T 可快速切换。"), w));
+                       "保存后**重启应用**完全生效；品牌行 ⌄ 菜单或 Ctrl+Shift+T 可快速切换。"), w);
+    themeHint->setWordWrap(true);
+    form->addRow(QString(), themeHint);
     return w;
 }
 
@@ -326,7 +342,7 @@ QWidget* SettingsDialog::buildProviderPage() {
     embForm->addRow(QStringLiteral("嵌入模型"), m_embModel);
     lay->addLayout(embForm);
     auto* embNote = new QLabel(QStringLiteral("复用所选供应商的接口地址与 API Key；修改后重启应用生效。"), w);
-    embNote->setStyleSheet(QStringLiteral("color:%1;font-size:8pt;").arg(theme::colors::textDim().name()));
+    embNote->setStyleSheet(QStringLiteral("color:%1;font-size:9.5pt;").arg(theme::colors::textDim().name()));
     lay->addWidget(embNote);
     return w;
 }
@@ -436,10 +452,12 @@ QWidget* SettingsDialog::buildHivePage() {
     form->addRow(QStringLiteral("Agent 名称"), m_hiveName);
     form->addRow(QStringLiteral("主密钥"), m_hiveKey);
     form->addRow(QStringLiteral("连接状态"), testW);
-    form->addRow(QString(), new QLabel(
+    auto* hiveHint = new QLabel(
         QStringLiteral("AgentHive 是本机多 Agent 协作平台（独立开源项目）。\n"
                        "仅连接本机环回地址，未开启时 Miderforge 不发任何请求。"
-                       "健康检查走 GET /api/health，无鉴权；其余接口使用上方主密钥。"), w));
+                       "健康检查走 GET /api/health，无鉴权；其余接口使用上方主密钥。"), w);
+    hiveHint->setWordWrap(true);
+    form->addRow(QString(), hiveHint);
     return w;
 }
 

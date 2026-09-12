@@ -20,6 +20,7 @@
 #include <QAction>
 #include <QActionGroup>
 #include <QApplication>
+#include <QFrame>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QMenu>
@@ -233,7 +234,17 @@ void MainWindow::buildCentral() {
 
     m_sidebar->loadSessions(m_db);
 
+    // 侧栏与内容区之间的分隔线：显式 1px 竖线。
+    // 侧栏样式表里虽写了 border-right，但裸 QWidget 不设 WA_StyledBackground 时样式表的
+    // 边框根本不会绘制——只靠 QSS 的分隔线在实机上"看不见"（用户反馈缺分隔线）。
+    auto* divider = new QFrame(central);
+    divider->setFrameShape(QFrame::VLine);
+    divider->setFrameShadow(QFrame::Plain);
+    divider->setFixedWidth(1);
+    divider->setStyleSheet(QStringLiteral("background-color:%1;border:none;")
+                               .arg(theme::colors::line().name()));
     lay->addWidget(m_sidebar);
+    lay->addWidget(divider);
     lay->addWidget(m_stack, 1);
     setCentralWidget(central);
 }
@@ -435,7 +446,7 @@ void MainWindow::restoreLastSession() {
 void MainWindow::buildStatusBar() {
     // 品牌签名：版本 + 标语（左侧固定）
     auto* brand = new QLabel(QStringLiteral("Miderforge · %1").arg(theme::brandTagline()), this);
-    brand->setStyleSheet(QStringLiteral("color:%1;font-size:8pt;").arg(theme::colors::brand().name()));
+    brand->setStyleSheet(QStringLiteral("color:%1;font-size:9.5pt;").arg(theme::colors::brand().name()));
     statusBar()->addWidget(brand);
     QLabel* sep = new QLabel(QStringLiteral("│"), this);
     sep->setStyleSheet(QStringLiteral("color:%1;").arg(theme::colors::line().name()));
