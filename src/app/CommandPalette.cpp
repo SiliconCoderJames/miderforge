@@ -66,7 +66,7 @@ CommandPalette::CommandPalette(QWidget* parent) : QDialog(parent) {
 
     m_list = new QListWidget(this);
     m_list->setStyleSheet(QStringLiteral(
-        "QListWidget{background:transparent;border:none;outline:none;font-size:10pt;}"
+        "QListWidget{background:transparent;border:none;outline:none;font-size:11pt;}"
         "QListWidget::item{height:34px;border-radius:7px;padding-left:10px;color:%2;margin:1px 0;}"
         "QListWidget::item:selected{background-color:%1;color:white;}")
                               .arg(theme::colors::accent().name(), theme::colors::text().name()));
@@ -76,7 +76,7 @@ CommandPalette::CommandPalette(QWidget* parent) : QDialog(parent) {
     lay->addWidget(m_list);
 
     m_hint = new QLabel(QStringLiteral("↑↓ 选择 · Enter 执行 · Esc 关闭"), this);
-    m_hint->setStyleSheet(QStringLiteral("color:%1;font-size:8pt;").arg(theme::colors::textDim().name()));
+    m_hint->setStyleSheet(QStringLiteral("color:%1;font-size:9.5pt;").arg(theme::colors::textDim().name()));
     lay->addWidget(m_hint);
 }
 

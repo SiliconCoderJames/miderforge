@@ -42,7 +42,7 @@ MemoryView::MemoryView(MemoryManager* mem, AdjudicationService* adjudicator, QWi
 
     auto* rightLay = new QVBoxLayout();
     m_metaLabel = new QLabel(QStringLiteral("选择左侧记忆查看详情"), this);
-    m_metaLabel->setStyleSheet(QStringLiteral("color:%1;font-size:9pt;").arg(theme::colors::textDim().name()));
+    m_metaLabel->setStyleSheet(QStringLiteral("color:%1;font-size:10pt;").arg(theme::colors::textDim().name()));
     m_detail = new QPlainTextEdit(this);
     m_detail->setFont(theme::monoFont());
     m_detail->setStyleSheet(QStringLiteral(
@@ -79,7 +79,7 @@ MemoryView::MemoryView(MemoryManager* mem, AdjudicationService* adjudicator, QWi
 
     // 底部：L1 占用
     m_l1Label = new QLabel(this);
-    m_l1Label->setStyleSheet(QStringLiteral("color:%1;font-size:9pt;").arg(theme::colors::textDim().name()));
+    m_l1Label->setStyleSheet(QStringLiteral("color:%1;font-size:10pt;").arg(theme::colors::textDim().name()));
     rootLay->addWidget(m_l1Label);
     reload();
 }
@@ -248,7 +248,7 @@ void MemoryView::onScanContradictions() {
 
     // 矛盾扫描 v2：AI 语义裁决（独立 ChatClient 实例，不与 AgentLoop 主链路抢占）
     auto* aiStatus = new QLabel(&dlg);
-    aiStatus->setStyleSheet(QStringLiteral("color:%1;font-size:9pt;").arg(theme::colors::textDim().name()));
+    aiStatus->setStyleSheet(QStringLiteral("color:%1;font-size:10pt;").arg(theme::colors::textDim().name()));
     if (m_adjudicator && m_adjudicator->available()) {
         auto* aiBtn = new QPushButton(QStringLiteral("🤖 AI 语义裁决"), &dlg);
         aiBtn->setToolTip(QStringLiteral("交由大模型逐对判定：矛盾/重复/互补（走 fast 档）"));

@@ -36,7 +36,7 @@ SkillView::SkillView(SkillManager* skills, QWidget* parent) : QWidget(parent), m
 
     auto* rightLay = new QVBoxLayout();
     m_meta = new QLabel(QStringLiteral("选择左侧技能查看详情"), this);
-    m_meta->setStyleSheet(QStringLiteral("color:%1;font-size:9pt;").arg(theme::colors::textDim().name()));
+    m_meta->setStyleSheet(QStringLiteral("color:%1;font-size:10pt;").arg(theme::colors::textDim().name()));
     m_preview = new QPlainTextEdit(this);
     m_preview->setReadOnly(true);
     m_preview->setFont(theme::monoFont());

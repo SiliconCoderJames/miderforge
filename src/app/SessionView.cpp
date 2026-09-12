@@ -158,7 +158,7 @@ void SessionView::onPickAttachment() {
             chip->setToolTip(f);
             chip->setStyleSheet(QStringLiteral(
                 "QPushButton{background-color:%1;border:1px solid %2;border-radius:10px;"
-                "padding:2px 10px;font-size:8pt;color:%3;}")
+                "padding:2px 10px;font-size:9.5pt;color:%3;}")
                                     .arg(theme::colors::codeBg().name(), theme::colors::line().name(),
                                          theme::colors::textDim().name()));
             const QString path = f;
@@ -196,10 +196,10 @@ QWidget* SessionView::buildTopStrip() {
     m_elapsedLabel = new QLabel(QStringLiteral("已用时 00:00"), strip);
     m_stateLabel = new QLabel(strip);
     for (auto* l : {m_roundLabel, m_tokensLabel, m_elapsedLabel}) {
-        l->setStyleSheet(QStringLiteral("color:%1;font-size:8pt;").arg(theme::colors::textDim().name()));
+        l->setStyleSheet(QStringLiteral("color:%1;font-size:9.5pt;").arg(theme::colors::textDim().name()));
         lay->addWidget(l);
     }
-    m_stateLabel->setStyleSheet(QStringLiteral("font-weight:bold;font-size:8pt;"));
+    m_stateLabel->setStyleSheet(QStringLiteral("font-weight:bold;font-size:9.5pt;"));
     lay->addWidget(m_stateLabel);
     return strip;
 }
@@ -240,7 +240,7 @@ void SessionView::buildEmptyState() {
     // 品牌标语（品牌色，字距拉开）
     auto* tagline = new QLabel(theme::brandTagline(), m_emptyState);
     tagline->setAlignment(Qt::AlignCenter);
-    tagline->setStyleSheet(QStringLiteral("color:%1;font-size:9pt;letter-spacing:2px;")
+    tagline->setStyleSheet(QStringLiteral("color:%1;font-size:10pt;letter-spacing:2px;")
                                .arg(theme::colors::brand().name()));
     lay->addWidget(tagline);
     lay->addSpacing(12);
@@ -264,7 +264,7 @@ void SessionView::buildEmptyState() {
         m_emptyState);
     hint->setAlignment(Qt::AlignCenter);
     hint->setWordWrap(true);
-    hint->setStyleSheet(QStringLiteral("color:%1;font-size:9pt;line-height:160%;")
+    hint->setStyleSheet(QStringLiteral("color:%1;font-size:10pt;line-height:160%;")
                             .arg(theme::colors::textDim().name()));
     lay->addWidget(hint);
     lay->addSpacing(26);
@@ -294,10 +294,10 @@ void SessionView::buildEmptyState() {
         cardLay->setContentsMargins(16, 12, 16, 12);
         cardLay->setSpacing(2);
         auto* ct = new QLabel(QString::fromUtf8(c.title), card);
-        ct->setStyleSheet(QStringLiteral("color:%1;font-size:10.5pt;font-weight:bold;border:none;")
+        ct->setStyleSheet(QStringLiteral("color:%1;font-size:11.5pt;font-weight:bold;border:none;")
                               .arg(theme::colors::text().name()));
         auto* cd = new QLabel(QString::fromUtf8(c.desc), card);
-        cd->setStyleSheet(QStringLiteral("color:%1;font-size:8.5pt;border:none;")
+        cd->setStyleSheet(QStringLiteral("color:%1;font-size:10pt;border:none;")
                               .arg(theme::colors::textDim().name()));
         cardLay->addWidget(ct);
         cardLay->addWidget(cd);
@@ -338,7 +338,7 @@ void SessionView::buildScrollToBottom() {
     m_scrollBottomBtn->setToolTip(QStringLiteral("跳到最新消息"));
     m_scrollBottomBtn->setStyleSheet(QStringLiteral(
         "QToolButton{background-color:%1;color:%2;border:1px solid %3;border-radius:14px;"
-        "padding:4px 12px;font-size:8.5pt;}"
+        "padding:4px 12px;font-size:10pt;}"
         "QToolButton:hover{border-color:%4;color:%4;}")
                                          .arg(theme::colors::panel().name(), theme::colors::textDim().name(),
                                               theme::colors::line().name(), theme::colors::accent().name()));
@@ -512,7 +512,7 @@ QWidget* SessionView::buildComposerMetaRow(QWidget* parent) {
 
     m_modelLabel = new QLabel(row);
     m_modelLabel->setToolTip(QStringLiteral("本轮实际使用的模型（由三档路由按任务语义自动选择）"));
-    m_modelLabel->setStyleSheet(QStringLiteral("color:%1;font-size:8pt;").arg(theme::colors::textDim().name()));
+    m_modelLabel->setStyleSheet(QStringLiteral("color:%1;font-size:9.5pt;").arg(theme::colors::textDim().name()));
     lay->addWidget(m_modelLabel);
 
     lay->addStretch(1);
@@ -545,7 +545,7 @@ QWidget* SessionView::buildInputArea() {
     // 聚焦时用品牌强调色描边：把「正在锻造」的反馈做成品牌色，而不是默认蓝框
     m_input->setStyleSheet(QStringLiteral(
         "QPlainTextEdit{background-color:%1;color:%2;border:1px solid %3;border-radius:8px;"
-        "padding:8px;font-size:10pt;}"
+        "padding:8px;font-size:11pt;}"
         "QPlainTextEdit:focus{border:1px solid %4;}")
                                .arg(theme::colors::window().name(), theme::colors::text().name(),
                                     theme::colors::line().name(), theme::colors::accent().name()));
@@ -890,7 +890,7 @@ void SessionView::onStreamRetrying(const QString& reason) {
     if (m_curAssistant)
         m_curAssistant->resetStream();
     auto* note = new QLabel(QStringLiteral("⚠ 流中断（%1），指数退避重试中…").arg(reason), m_feedHost);
-    note->setStyleSheet(QStringLiteral("color:%1;font-size:8pt;").arg(theme::colors::warn().name()));
+    note->setStyleSheet(QStringLiteral("color:%1;font-size:9.5pt;").arg(theme::colors::warn().name()));
     appendToFeed(note);
 }
 

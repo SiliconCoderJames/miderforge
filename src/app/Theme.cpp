@@ -249,11 +249,13 @@ QDialog { background-color: %window; }
 }
 
 QFont uiFont() {
-    return QFont(QStringLiteral("Microsoft YaHei UI"), 9);
+    // 基准 10pt：9pt 在高分屏与中文场景下偏小（实机反馈"字太小"）；
+    // 各控件若需强调，用 QSS font-size 相对本基准加档
+    return QFont(QStringLiteral("Microsoft YaHei UI"), 10);
 }
 
 QFont monoFont() {
-    return QFont(QStringLiteral("Consolas"), 9);
+    return QFont(QStringLiteral("Consolas"), 10);
 }
 
 QString coloredDot(const QColor& c) {

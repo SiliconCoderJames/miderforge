@@ -136,7 +136,7 @@ QWidget* ProviderPanel::makeCard(const ProviderConfig& cfg) {
     btnRow->addWidget(useBtn);
     if (!cfg.configured) {
         auto* hint = new QLabel(QStringLiteral("（未配置 Key）"), card);
-        hint->setStyleSheet(QStringLiteral("color:%1;font-size:9pt;").arg(theme::colors::warn().name()));
+        hint->setStyleSheet(QStringLiteral("color:%1;font-size:10pt;").arg(theme::colors::warn().name()));
         btnRow->addWidget(hint);
     }
     btnRow->addStretch(1);

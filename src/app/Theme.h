@@ -44,6 +44,22 @@ inline QColor btnHover(){ return palette().btnHover; }
 inline QColor altRow()  { return palette().altRow; }
 } // namespace colors
 
+// 设计刻度：把散落各处的魔法数字收敛成一套刻度（间距 4 的倍数、控件高度三档）。
+// 用途：布局不再出现 28/30/32/36 混搭这类"看着就差一口气"的不一致。
+namespace metrics {
+inline constexpr int spaceXs = 4;
+inline constexpr int spaceSm = 8;
+inline constexpr int spaceMd = 12;
+inline constexpr int spaceLg = 16;
+inline constexpr int spaceXl = 20;
+inline constexpr int rowCompact = 28; // 行内小控件（筛选框、标签行）
+inline constexpr int rowDefault = 32; // 常规按钮 / 输入框
+inline constexpr int rowPrimary = 38; // 主行动按钮（新建会话）
+inline constexpr int radius = 6;
+inline constexpr int sidebarWidth = 260;
+inline constexpr int settingsNavWidth = 228;
+} // namespace metrics
+
 void apply(QApplication& app);
 // 全局 QSS：输入框/按钮/列表/表格/Tab/滚动条/菜单统一观感（颜色全部来自当前色板）
 QString globalStyleSheet();

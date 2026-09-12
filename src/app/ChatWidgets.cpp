@@ -118,7 +118,7 @@ UserBubble::UserBubble(const QString& text, QWidget* parent) : QWidget(parent) {
     label->setText(inlineMd(text));
     label->setStyleSheet(QStringLiteral(
         "background-color:%1;border:1px solid %2;border-radius:10px;padding:8px 12px;"
-        "font-size:10pt;")
+        "font-size:11pt;")
                              .arg(theme::colors::accent().darker(300).name(),
                                   theme::colors::accent().name()));
     // 限宽：长目标不再横贯整个窗口（与助手正文一致的阅读宽度）
@@ -147,7 +147,7 @@ AssistantBlock::AssistantBlock(QWidget* parent) : QWidget(parent) {
     m_thinkingToggle->setToolButtonStyle(Qt::ToolButtonTextOnly);
     m_thinkingToggle->setVisible(false); // 首个思考增量到达时才显示
     m_thinkingToggle->setStyleSheet(QStringLiteral(
-        "QToolButton{color:%1;border:none;text-align:left;font-size:8.5pt;}"
+        "QToolButton{color:%1;border:none;text-align:left;font-size:10pt;}"
         "QToolButton:hover{color:%2;}")
                                         .arg(theme::colors::textDim().name(),
                                              theme::colors::accent().name()));
@@ -158,7 +158,7 @@ AssistantBlock::AssistantBlock(QWidget* parent) : QWidget(parent) {
     m_thinkingLabel->setVisible(false);
     m_thinkingLabel->setStyleSheet(QStringLiteral(
         "color:%1;font-style:italic;background-color:%2;border-left:2px solid %3;"
-        "border-radius:6px;padding:6px 8px;font-size:9pt;")
+        "border-radius:6px;padding:6px 8px;font-size:10pt;")
                                         .arg(theme::colors::textDim().name(), theme::colors::codeBg().name(),
                                              theme::colors::line().name()));
     connect(m_thinkingToggle, &QToolButton::toggled, this, [this](bool on) {
@@ -171,7 +171,7 @@ AssistantBlock::AssistantBlock(QWidget* parent) : QWidget(parent) {
     m_contentLabel->setTextFormat(Qt::RichText);
     m_contentLabel->setWordWrap(true);
     m_contentLabel->setTextInteractionFlags(Qt::TextBrowserInteraction);
-    m_contentLabel->setStyleSheet(QStringLiteral("color:%1;font-size:10pt;")
+    m_contentLabel->setStyleSheet(QStringLiteral("color:%1;font-size:11pt;")
                                       .arg(theme::colors::text().name()));
 
     lay->addWidget(m_thinkingToggle);
@@ -184,10 +184,10 @@ AssistantBlock::AssistantBlock(QWidget* parent) : QWidget(parent) {
     streamLay->setContentsMargins(2, 0, 0, 0);
     streamLay->setSpacing(6);
     m_streamDot = new QLabel(QStringLiteral("●"), m_streamRow);
-    m_streamDot->setStyleSheet(QStringLiteral("color:%1;font-size:8pt;")
+    m_streamDot->setStyleSheet(QStringLiteral("color:%1;font-size:9.5pt;")
                                    .arg(theme::colors::accent().name()));
     m_streamLabel = new QLabel(QStringLiteral("正在生成…"), m_streamRow);
-    m_streamLabel->setStyleSheet(QStringLiteral("color:%1;font-size:8pt;")
+    m_streamLabel->setStyleSheet(QStringLiteral("color:%1;font-size:9.5pt;")
                                      .arg(theme::colors::textDim().name()));
     streamLay->addWidget(m_streamDot);
     streamLay->addWidget(m_streamLabel);
@@ -205,7 +205,7 @@ AssistantBlock::AssistantBlock(QWidget* parent) : QWidget(parent) {
     copyBtn->setCursor(Qt::PointingHandCursor);
     copyBtn->setToolTip(QStringLiteral("复制这条回复的正文"));
     copyBtn->setStyleSheet(QStringLiteral(
-        "QPushButton{color:%1;border:none;font-size:8pt;padding:1px 4px;}"
+        "QPushButton{color:%1;border:none;font-size:9.5pt;padding:1px 4px;}"
         "QPushButton:hover{color:%2;}")
                                .arg(theme::colors::textDim().name(), theme::colors::accent().name()));
     connect(copyBtn, &QPushButton::clicked, this, [this] {
@@ -316,7 +316,7 @@ ToolCallCard::ToolCallCard(const QString& callId, const QString& toolName, QWidg
                                 .arg(theme::colors::text().name()));
     connect(m_header, &QToolButton::toggled, this, &ToolCallCard::toggleBody);
     m_statusHint = new QLabel(this);
-    m_statusHint->setStyleSheet(QStringLiteral("font-size:8pt;"));
+    m_statusHint->setStyleSheet(QStringLiteral("font-size:9.5pt;"));
     m_statusDot = new QLabel(this);
     m_statusDot->setTextFormat(Qt::RichText);
     m_statusDot->setText(theme::coloredDot(theme::colors::accent())); // 运行中=强调色
@@ -335,7 +335,7 @@ ToolCallCard::ToolCallCard(const QString& callId, const QString& toolName, QWidg
 
     auto makeTitle = [this](const QString& t) {
         auto* l = new QLabel(t, m_body);
-        l->setStyleSheet(QStringLiteral("color:%1;font-size:8pt;").arg(theme::colors::textDim().name()));
+        l->setStyleSheet(QStringLiteral("color:%1;font-size:9.5pt;").arg(theme::colors::textDim().name()));
         return l;
     };
 
@@ -396,7 +396,7 @@ ToolCallCard::ToolCallCard(const QString& callId, const QString& toolName, QWidg
     bodyLay->addLayout(actionRow);
 
     m_costLabel = new QLabel(m_body);
-    m_costLabel->setStyleSheet(QStringLiteral("color:%1;font-size:8pt;").arg(theme::colors::textDim().name()));
+    m_costLabel->setStyleSheet(QStringLiteral("color:%1;font-size:9.5pt;").arg(theme::colors::textDim().name()));
     bodyLay->addWidget(m_costLabel);
 
     // 待确认三按钮（M1 权限门接入后可见）
@@ -450,7 +450,7 @@ void ToolCallCard::setBorderColor(const QColor& c) {
 void ToolCallCard::setRunning() {
     m_statusDot->setText(theme::coloredDot(theme::colors::accent()));
     m_statusHint->setText(QStringLiteral("执行中"));
-    m_statusHint->setStyleSheet(QStringLiteral("color:%1;font-size:8pt;")
+    m_statusHint->setStyleSheet(QStringLiteral("color:%1;font-size:9.5pt;")
                                     .arg(theme::colors::accent().name()));
     setBorderColor(theme::colors::accent());
 }
@@ -458,7 +458,7 @@ void ToolCallCard::setRunning() {
 void ToolCallCard::setSucceeded() {
     m_statusDot->setText(theme::coloredDot(theme::colors::success()));
     m_statusHint->setText(QStringLiteral("成功"));
-    m_statusHint->setStyleSheet(QStringLiteral("color:%1;font-size:8pt;")
+    m_statusHint->setStyleSheet(QStringLiteral("color:%1;font-size:9.5pt;")
                                     .arg(theme::colors::success().name()));
     setBorderColor(theme::colors::success());
 }
@@ -466,7 +466,7 @@ void ToolCallCard::setSucceeded() {
 void ToolCallCard::setFailed() {
     m_statusDot->setText(theme::coloredDot(theme::colors::error()));
     m_statusHint->setText(QStringLiteral("失败"));
-    m_statusHint->setStyleSheet(QStringLiteral("color:%1;font-size:8pt;")
+    m_statusHint->setStyleSheet(QStringLiteral("color:%1;font-size:9.5pt;")
                                     .arg(theme::colors::error().name()));
     setBorderColor(theme::colors::error());
 }
@@ -474,7 +474,7 @@ void ToolCallCard::setFailed() {
 void ToolCallCard::setAwaitingConfirm() {
     m_statusDot->setText(theme::coloredDot(theme::colors::warn()));
     m_statusHint->setText(QStringLiteral("等待确认"));
-    m_statusHint->setStyleSheet(QStringLiteral("color:%1;font-size:8pt;font-weight:bold;")
+    m_statusHint->setStyleSheet(QStringLiteral("color:%1;font-size:9.5pt;font-weight:bold;")
                                     .arg(theme::colors::warn().name()));
     setBorderColor(theme::colors::warn());
     if (!m_header->isChecked())
@@ -527,7 +527,7 @@ ChangeSummaryBar::ChangeSummaryBar(QWidget* parent) : QFrame(parent) {
     m_header->setToolButtonStyle(Qt::ToolButtonTextOnly);
     m_header->setCursor(Qt::PointingHandCursor);
     m_header->setStyleSheet(QStringLiteral(
-        "QToolButton{border:none;background:transparent;color:%1;font-size:9pt;text-align:left;}")
+        "QToolButton{border:none;background:transparent;color:%1;font-size:10pt;text-align:left;}")
                                 .arg(theme::colors::textDim().name()));
     connect(m_header, &QToolButton::clicked, this, &ChangeSummaryBar::toggleExpanded);
     lay->addWidget(m_header);
@@ -537,7 +537,7 @@ ChangeSummaryBar::ChangeSummaryBar(QWidget* parent) : QFrame(parent) {
     bodyLay->setContentsMargins(0, 0, 0, 0);
     m_list = new QListWidget(m_body);
     m_list->setStyleSheet(QStringLiteral(
-        "QListWidget{background:transparent;border:none;font-size:9pt;outline:none;}"
+        "QListWidget{background:transparent;border:none;font-size:10pt;outline:none;}"
         "QListWidget::item{height:26px;border-radius:6px;padding-left:4px;color:%2;margin:1px 0;}"
         "QListWidget::item:hover{background-color:%1;}")
                               .arg(theme::colors::window().name(), theme::colors::textDim().name()));
@@ -612,7 +612,7 @@ Toast::Toast(QWidget* parent, const QString& text, Level level, int msec)
 
     auto* label = new QLabel(text, this);
     label->setWordWrap(true);
-    label->setStyleSheet(QStringLiteral("color:%1;font-size:9pt;border:none;")
+    label->setStyleSheet(QStringLiteral("color:%1;font-size:10pt;border:none;")
                              .arg(theme::colors::text().name()));
     lay->addWidget(label);
 
