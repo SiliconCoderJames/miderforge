@@ -157,6 +157,7 @@ add_executable(mider_adversarial_tests
     tests/adversarial/mock_sse_server.h
     tests/adversarial/WorkspaceBoundaryTest.cpp
     tests/adversarial/ReadChannelTest.cpp
+    tests/adversarial/CommandWhitelistTest.cpp
 )
 target_link_libraries(mider_adversarial_tests PRIVATE mider_core doctest::doctest)
 add_test(NAME adversarial.workspace_boundary
@@ -165,6 +166,9 @@ set_tests_properties(adversarial.workspace_boundary PROPERTIES TIMEOUT 300)
 add_test(NAME adversarial.read_channel
          COMMAND mider_adversarial_tests --test-suite=adversarial.read_channel)
 set_tests_properties(adversarial.read_channel PROPERTIES TIMEOUT 300)
+add_test(NAME adversarial.command_whitelist
+         COMMAND mider_adversarial_tests --test-suite=adversarial.command_whitelist)
+set_tests_properties(adversarial.command_whitelist PROPERTIES TIMEOUT 300)
 if(WIN32)
     # 测试 exe 的运行时 DLL（Qt 等）随构建就位，ctest 无需手工挂 PATH
     add_custom_command(TARGET mider_adversarial_tests POST_BUILD

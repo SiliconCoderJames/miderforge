@@ -146,6 +146,92 @@ bool gitDestructive(const QStringList& tokens) {
     return false;
 }
 
+// P0-3：白名单内工具的任意代码执行向量（子命令 + 参数模式级拦截）。
+// 原则：白名单只收紧不放宽；任何放宽须先经使用者裁决。
+// cmake：-P 直接跑脚本（脚本内 execute_process/file(WRITE) 任意执行/写），
+// -E env / -E chdir 借改环境/换目录执行外部命令
+bool cmakeExecVector(const QStringList& tokens) {
+    for (int i = 0; i < tokens.size(); ++i) {
+        if (tokens[i].compare(QLatin1String("cmake"), Qt::CaseInsensitive) != 0)
+            continue;
+        for (int j = i + 1; j < tokens.size(); ++j) {
+            const QString t = tokens[j];
+            if (t.compare(QLatin1String("-P"), Qt::CaseInsensitive) == 0
+                || (t.startsWith(QLatin1String("-P"), Qt::CaseInsensitive) && t.size() > 2))
+                return true; // 附着形式 -Pscript.cmake 同拦
+            if (t.compare(QLatin1String("-E"), Qt::CaseInsensitive) == 0 && j + 1 < tokens.size()) {
+                const QString verb = tokens[j + 1].toLower();
+                if (verb == QLatin1String("env") || verb == QLatin1String("chdir"))
+                    return true;
+            }
+        }
+    }
+    return false;
+}
+
+// 磁盘级操作：令牌级判定（format/diskpart 整工具、cipher /w 整参数）。
+// P0-3：替代旧正则 \\b(format)\\b——它把 clang-format 里的 format 误判成磁盘格式化，
+// 误杀白名单内的格式化工具；令牌级只拦真正会执行磁盘操作的独立命令
+bool diskLevelOp(const QStringList& tokens) {
+    for (int i = 0; i < tokens.size(); ++i) {
+        const QString t = tokens[i].toLower();
+        if (t == QLatin1String("format") || t == QLatin1String("format.com")
+            || t == QLatin1String("diskpart"))
+            return true;
+        if (t == QLatin1String("cipher") && i + 1 < tokens.size()
+            && tokens[i + 1].compare(QLatin1String("/w"), Qt::CaseInsensitive) == 0)
+            return true;
+    }
+    return false;
+}
+
+// git：! 别名注入 / -c 内联配置 / --exec（rebase、am 的 exec 语义）/ --exec-path（伪造子命令
+// 查找目录）/ config 写入（alias.*、core.pager、core.fsmonitor、core.sshCommand）/ filter-branch /
+// submodule foreach——全部是"借 git 之手跑任意命令"的通道
+bool gitExecVector(const QStringList& tokens) {
+    for (int i = 0; i < tokens.size(); ++i) {
+        if (tokens[i].compare(QLatin1String("git"), Qt::CaseInsensitive) != 0)
+            continue;
+        for (int j = i + 1; j < tokens.size(); ++j)
+            if (tokens[j].startsWith(QLatin1Char('!')))
+                return true; // 含字面 git !rm -rf ~ 形态
+        for (int j = i + 1; j < tokens.size(); ++j) {
+            const QString t = tokens[j];
+            if (t == QLatin1String("--exec-path") || t.startsWith(QLatin1String("--exec-path=")))
+                return true;
+            if (t == QLatin1String("--exec") || t.startsWith(QLatin1String("--exec=")))
+                return true;
+            if (t == QLatin1String("-c"))
+                return true; // git -c 一条命令内注入 alias/fsmonitor/pager
+        }
+        const GitSub s = gitSubcommand(tokens, i);
+        if (s.sub == QLatin1String("config")) {
+            // 只放行只读形态；写入形态可注入别名/分页器/fsmonitor/sshCommand
+            bool readOnly = false;
+            for (const QString& f : s.rest) {
+                if (f == QLatin1String("--get") || f == QLatin1String("--get-all")
+                    || f == QLatin1String("--get-regexp") || f == QLatin1String("--list"))
+                    readOnly = true;
+            }
+            if (!readOnly)
+                return true;
+        }
+        if (s.sub == QLatin1String("filter-branch"))
+            return true;
+        if (s.sub == QLatin1String("submodule")) {
+            for (const QString& f : s.rest)
+                if (f.compare(QLatin1String("foreach"), Qt::CaseInsensitive) == 0)
+                    return true;
+        }
+        if (s.sub == QLatin1String("rebase") || s.sub == QLatin1String("am")) {
+            for (const QString& f : s.rest)
+                if (f.startsWith(QLatin1String("-x")))
+                    return true; // -x<cmd> / -x <cmd> 每提交执行一条命令
+        }
+    }
+    return false;
+}
+
 } // namespace
 
 QString PermissionGate::hardDenyReason(PermissionGate::Kind kind, const QString& target,
@@ -177,11 +263,8 @@ QString PermissionGate::hardDenyReason(PermissionGate::Kind kind, const QString&
         // 白名单内的破坏性 git：reset --hard / clean -f（工作区内也可能毁掉未提交工作）
         if (gitDestructive(tokens))
             return QStringLiteral("禁止破坏性 git 操作（reset --hard / clean -f 会丢弃未提交改动）");
-        // 磁盘级操作
-        static const QRegularExpression diskLevel(
-            QStringLiteral("\\b(format|diskpart|cipher\\s+/w)\\b"),
-            QRegularExpression::CaseInsensitiveOption);
-        if (diskLevel.match(cmd).hasMatch())
+        // 磁盘级操作（P0-3：令牌级，见 diskLevelOp 注释——clang-format 不再误杀）
+        if (diskLevelOp(tokens))
             return QStringLiteral("禁止磁盘级操作");
         // 递归删除：rd /s、del /s、rmdir /s、rm -r/-rf/-fr、--recursive、Remove-Item -Recurse
         //（-rf 中 r 后跟字母不构成 \b，必须用"含 r 的短选项"整体匹配，否则 rm -rf 漏拦）
@@ -202,6 +285,11 @@ QString PermissionGate::hardDenyReason(PermissionGate::Kind kind, const QString&
                     return QStringLiteral("工作区外递归删除被永久禁止：%1").arg(p);
             }
         }
+        // P0-3：白名单内工具的任意代码执行向量（模式级；第二层 CommandTools 同源复用）
+        if (cmakeExecVector(tokens))
+            return QStringLiteral("cmake -P/-E env/-E chdir 可执行任意脚本或命令，被永久禁止");
+        if (gitExecVector(tokens))
+            return QStringLiteral("git 别名/内联配置/--exec/config 写入等任意命令执行向量，被永久禁止");
     }
     // “以用户身份发送消息”不适用工具通道：邮件仅限任务通知（规格 10）
     return {};

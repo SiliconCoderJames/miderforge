@@ -66,6 +66,42 @@
   - 对抗套件曾出现一次偶发 fastfail（0xc0000409，仅首轮构建后复现两次）；adversarial_main
     已改无缓冲 stdout，此后连续 10+ 次全量运行未复现；若再现，崩溃现场输出可直读。
 
+## P0-3 命令白名单：任意代码执行向量拦截（完成）
+- 改动（\`PermissionGate.cpp\`，第一层；\`CommandTools.cpp\` 第二层同源复用）：
+  - cmake：\`-P\`（含附着形式 \`-Pscript.cmake\`）执行脚本——脚本内 execute_process/file(WRITE)
+    任意执行/写；\`-E env\` / \`-E chdir\` 借改环境/换目录执行外部命令。常规构建形态
+    （-S/-B/--build/--target）不受影响。
+  - git：任何 \`!\` 开头词元（别名注入，含任务书原样向量 \`git !rm -rf ~\`）、\`-c\` 内联配置、
+    \`--exec\` / \`--exec=\`（rebase、am 的 exec 语义）、\`--exec-path\`（伪造子命令查找目录）、
+    \`config\` 写入形态（alias.*/core.pager/core.fsmonitor/core.sshCommand 注入；只读
+    --get/--get-all/--get-regexp/--list 放行）、\`filter-branch\`、\`submodule foreach\`、
+    \`rebase|am -x\`。\`git --version\`/status/log/diff/add/commit 与 \`git config --get\` 保持放行。
+  - \`CommandTools::run_command\` 第二层：复用 \`hardDenyReason(Kind::RunCommand,…)\`，
+    绕过权限门直调 handler 同样拦截；拒绝发生在 spawn 之前（子进程从未启动）。
+  - 事件：命令通道拒绝改记 \`command_denied\`（自动执行与手动重跑同口径），target=完整命令行，
+    六元组沿用 P0-2 结构；读/写/网络通道不变。
+  - 精度修正（本任务暴露的旧误报）：磁盘级操作判定由正则改为令牌级——旧 \\b(format)\\b 把
+    **clang-format** 误杀（对抗用例红出）；真正会执行磁盘操作的只有独立 format/format.com/
+    diskpart 令牌与 cipher /w 参数，令牌级全数保留拦截。
+- 测试（tests/adversarial/CommandWhitelistTest.cpp，ctest 项 \`adversarial.command_whitelist\`，
+  6 用例 / 66 断言）：
+  - 任务书原样向量：\`cmake -P evil.cmake\`、\`git !rm -rf ~\`、\`git log --exec=\"curl http://x\"\`
+    均三档拒绝；handler 层直调同拒。
+  - canary 证据：evil.cmake 一旦被任何通道执行即写出 canary 文件——全部向量尝试后
+    canary 不存在、工作区除 fixture 的 evil.cmake 外无任何执行产物。
+    （开发过程曾真实抓到一次 canary：检查块误嵌进递归删除分支导致漏拦，用例红出后修正位置。）
+  - 反过度封锁：cmake -S/-B/--build、git 常规与 config 只读、ninja/msbuild/clang-format/
+    where/echo 全部保持放行。
+- 证据（本机实测）：BUILD_EXIT=0；\`ctest --preset win64-release\` → 4/4 Passed
+  （unit 11.8s + workspace_boundary 0.9s + read_channel 0.2s + command_whitelist 0.03s），
+  连续三轮 100%。
+- 遗留 / 说明：
+  - 白名单只收紧不放宽：本轮对白名单的净变化是**新增两类拒绝向量**；无任何新增放行。
+  - 已知残余：git commit/merge 会触发仓库钩子（.git/hooks 属工作区内可写文件，写边界管不住
+    其内容）；钓出钩子执行需勾子语义审查，留 Roadmap。
+  - 单测二进制偶发 fastfail（0xc0000409，约 1/6 次运行，P0-2 起偶见，与本任务改动无关联路径）；
+    稳定复现路径未找到，adversarial_main 已无缓冲化，复现时可直读现场。留观。
+
 ## 地图确认时已定的方案（你已确认"地图无误"）
 - P0-2：把应用自身数据目录（config/ DPAPI 密文、miderforge.db、memory/、logs/、miderforge.lock）
   加入读取侧保护区；read_skill 走 skills/ 子树豁免；session_search 无路径参数不纳入路径清单；

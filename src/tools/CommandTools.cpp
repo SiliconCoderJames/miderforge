@@ -125,6 +125,15 @@ void CommandTools::registerAll(ToolRegistry& reg) {
             if (err) *err = QStringLiteral("命令不在白名单内：%1").arg(first);
             return {};
         }
+        // P0-3：第二层与权限门同源的模式拦截（cmake -P/-E env|chdir、git -c/--exec/config 写/! 注入…）。
+        // 绕过权限门的调用点直连这里也拦；拒绝发生在 spawn 之前，子进程从未启动
+        if (const QString hard = PermissionGate().hardDenyReason(
+                                     PermissionGate::Kind::RunCommand, command,
+                                     AppContext::instance().workspaceRoot);
+            !hard.isEmpty()) {
+            if (err) *err = QStringLiteral("命令命中永久禁止模式：%1").arg(hard);
+            return envelope(QJsonObject{{"ok", false}, {"denied", true}, {"reason", hard}});
+        }
 
         QProcess proc;
         proc.setWorkingDirectory(AppContext::instance().workspaceRoot); // 工作目录钉死工作区

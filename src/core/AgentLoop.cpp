@@ -503,8 +503,9 @@ void AgentLoop::onStreamFinished(const StreamResult& result) {
                                           : kind == PermissionGate::Kind::RunCommand
                                               ? QStringLiteral("run_command")
                                               : QStringLiteral("network");
-                m_deps.events->append(kind == PermissionGate::Kind::ReadFile
-                                          ? QStringLiteral("read_denied")
+                m_deps.events->append(kind == PermissionGate::Kind::ReadFile    ? QStringLiteral("read_denied")
+                                      : kind == PermissionGate::Kind::RunCommand
+                                          ? QStringLiteral("command_denied")
                                           : QStringLiteral("permission_deny"),
                                       m_taskId,
                                       QJsonObject{{"actor", "agent"},
@@ -922,7 +923,9 @@ QString AgentLoop::rerunTool(const QString& toolName, const QString& argsJson, b
             const QString reason = m_gate.hardDenyReason(kind, target,
                                                          AppContext::instance().workspaceRoot);
             m_deps.events->append(readChannel ? QStringLiteral("read_denied")
-                                              : QStringLiteral("permission_deny"),
+                                  : kind == PermissionGate::Kind::RunCommand
+                                      ? QStringLiteral("command_denied")
+                                      : QStringLiteral("permission_deny"),
                                   m_taskId,
                                   QJsonObject{{"actor", "agent"},
                                               {"authorizer", "permission_gate"},
