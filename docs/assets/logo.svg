@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Miderforge logo">
+  <!-- Miderforge 品牌标识:夜蓝圆角底 + 蜜金锻造锤 + 锻造火花 + 淡蓝蜂窝六边形(呼应姊妹项目 MiderHive)
+       与 resources/scripts/make_icon.py(应用图标)同一设计语言 -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#283040"/>
+      <stop offset="1" stop-color="#131821"/>
+    </linearGradient>
+    <!-- 锻造炉光:锤身后一团暖光,让主体从底色里"浮"出来 -->
+    <radialGradient id="glow" cx="0.5" cy="0.44" r="0.60">
+      <stop offset="0" stop-color="#f59e0b" stop-opacity="0.28"/>
+      <stop offset="0.55" stop-color="#f59e0b" stop-opacity="0.10"/>
+      <stop offset="1" stop-color="#f59e0b" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="bar" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ffd682"/>
+      <stop offset="1" stop-color="#f09208"/>
+    </linearGradient>
+    <linearGradient id="cap" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#f59e0b"/>
+      <stop offset="1" stop-color="#ffd682"/>
+    </linearGradient>
+    <linearGradient id="handle" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f4ba56"/>
+      <stop offset="1" stop-color="#bc7616"/>
+    </linearGradient>
+    <!-- 顶部玻璃高光与四角暗角:质感来自克制 -->
+    <linearGradient id="glass" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.09"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="vig" cx="0.5" cy="0.5" r="0.75">
+      <stop offset="0.60" stop-color="#000000" stop-opacity="0"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0.26"/>
+    </radialGradient>
+    <radialGradient id="sparkGlow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#ffc457" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#ffc457" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="soft" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="9"/>
+    </filter>
+    <clipPath id="tile"><rect x="16" y="16" width="480" height="480" rx="112"/></clipPath>
+  </defs>
+
+  <g clip-path="url(#tile)">
+    <rect width="512" height="512" fill="url(#bg)"/>
+    <rect width="512" height="512" fill="url(#glow)"/>
+
+    <!-- 蜂窝六边形:点顶朝上,细描边、低透明度,只是血统暗号 -->
+    <polygon points="256,96 390,173 390,339 256,416 122,339 122,173"
+             fill="none" stroke="#5d99ff" stroke-opacity="0.22" stroke-width="5" stroke-linejoin="round"/>
+
+    <!-- 锻造锤:头在左上、手柄扫向右下(阅读方向) -->
+    <g transform="rotate(-45 256 256)">
+      <!-- 投影 -->
+      <g fill="#000000" opacity="0.30" filter="url(#soft)" transform="translate(7,10)">
+        <rect x="116" y="102" width="56" height="126" rx="21"/>
+        <rect x="340" y="102" width="56" height="126" rx="21"/>
+        <rect x="146" y="118" width="220" height="94" rx="22"/>
+        <rect x="238" y="200" width="36" height="196" rx="17"/>
+      </g>
+      <!-- 手柄 + 防滑带 -->
+      <rect x="238" y="200" width="36" height="196" rx="17" fill="url(#handle)"/>
+      <rect x="233" y="330" width="46" height="26" rx="12" fill="#8a4b08"/>
+      <!-- 锤头杆 + 两端锤面 -->
+      <rect x="146" y="118" width="220" height="94" rx="22" fill="url(#bar)"/>
+      <rect x="116" y="102" width="56" height="126" rx="21" fill="url(#cap)"/>
+      <rect x="340" y="102" width="56" height="126" rx="21" fill="url(#cap)"/>
+      <!-- 机加工感的高光细线 -->
+      <rect x="154" y="126" width="204" height="10" rx="5" fill="#ffffff" opacity="0.35"/>
+    </g>
+
+    <!-- 锻造火花:从头右上方向外飞溅,渐远渐小渐淡 -->
+    <circle cx="352" cy="112" r="52" fill="url(#sparkGlow)"/>
+    <circle cx="332" cy="122" r="8" fill="#ffcf74"/>
+    <circle cx="362" cy="94" r="5.5" fill="#ffdca0" opacity="0.9"/>
+    <circle cx="388" cy="72" r="3.5" fill="#ffe7c2" opacity="0.75"/>
+    <circle cx="306" cy="142" r="2.5" fill="#ffc457" opacity="0.6"/>
+
+    <!-- 暗角与玻璃高光压住整体 -->
+    <rect width="512" height="512" fill="url(#vig)"/>
+    <rect x="16" y="16" width="480" height="250" fill="url(#glass)"/>
+    <rect x="17" y="17" width="478" height="478" rx="111" fill="none" stroke="#ffffff" stroke-opacity="0.06" stroke-width="2"/>
+  </g>
+</svg>
