@@ -23,7 +23,8 @@ void registerAll(ToolRegistry& reg, Database* db, MemoryManager* mem);
 bool checkFetchUrl(const QString& url, QString* pinnedIp, QString* err);
 
 // 记忆内容安全扫描（纯逻辑、可单测，Hermes 同款思路）：
-// 拦截不可见 Unicode（零宽字符 U+200B-U+200F / U+2060-U+2064 / U+FEFF / 软连字符 U+00AD）
+// 拦截不可见 Unicode（按码点判定：零宽字符、词连接符、方向隔离符、双向覆盖、
+// 变体选择符含增补平面、BOM、软连字符、U+061C/U+180E/U+115F/U+1160）
 // 与典型提示词注入/外传指令串；通过返回 true，reason 给出拦截原因
 bool isSafeMemoryContent(const QString& content, QString* reason);
 

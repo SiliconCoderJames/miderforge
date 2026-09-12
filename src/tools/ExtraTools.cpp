@@ -458,17 +458,25 @@ void ExtraTools::registerAll(ToolRegistry& reg, Database* db, MemoryManager* mem
 }
 
 bool isSafeMemoryContent(const QString& content, QString* reason) {
-    // 1) 不可见 Unicode（Hermes 同款拦截）：零宽字符/词连接符/BOM/软连字符
-    //    逐字符判定（确定性，不依赖正则的 Unicode 转义支持）
-    //    已知未覆盖（口径如实收窄，勿按"全部不可见字符"理解）：变体选择符
-    //    U+FE00–U+FE0F 与 U+E0100–U+E01EF、方向隔离符 U+2066–U+2069、
-    //    双向覆盖 U+202A–U+202E、U+061C/U+180E/U+115F/U+1160
-    for (const QChar ch : content) {
-        const char16_t u = ch.unicode();
-        const bool invisible = (u >= 0x200B && u <= 0x200F) || (u >= 0x2060 && u <= 0x2064)
-                               || u == 0xFEFF || u == 0x00AD;
+    // 1) 不可见 Unicode（Hermes 同款拦截）：按【码点】判定（toStdU32String，
+    //    增补平面 U+E0100+ 经代理对正确解码，emoji 等正常字符不受影响）
+    //    覆盖：零宽字符/词连接符/方向隔离符(LRI·RLI·FSI·PDI)/双向覆盖与嵌入/
+    //    变体选择符(U+FE00–FE0F 与增补 U+E0100–E01EF)/BOM/软连字符/
+    //    阿拉伯字母标记(U+061C)/蒙古元音分隔符(U+180E)/谚文填充符(U+115F·U+1160)
+    const std::u32string cps = content.toStdU32String();
+    for (const char32_t u : cps) {
+        const bool invisible =
+            (u >= 0x200B && u <= 0x200F) ||   // 零宽空格/零宽连接符/LRM·RLM
+            (u >= 0x2060 && u <= 0x2064) ||   // 词连接符族
+            (u >= 0x2066 && u <= 0x2069) ||   // 方向隔离符 LRI·RLI·FSI·PDI
+            (u >= 0x202A && u <= 0x202E) ||   // 双向嵌入与覆盖（同形异序攻击）
+            (u >= 0xFE00 && u <= 0xFE0F) ||   // 变体选择符
+            (u >= 0xE0100 && u <= 0xE01EF) || // 变体选择符增补
+            u == 0x00AD || u == 0xFEFF ||     // 软连字符 / BOM
+            u == 0x061C || u == 0x180E ||     // 阿拉伯字母标记 / 蒙古元音分隔符
+            (u >= 0x115F && u <= 0x1160);     // 谚文填充符
         if (invisible) {
-            if (reason) *reason = QStringLiteral("包含不可见 Unicode 字符 U+%1（常见于隐蔽注入）").arg(u, 4, 16, QLatin1Char('0'));
+            if (reason) *reason = QStringLiteral("包含不可见 Unicode 字符 U+%1（常见于隐蔽注入）").arg(static_cast<quint32>(u), 4, 16, QLatin1Char('0'));
             return false;
         }
     }
