@@ -15,6 +15,7 @@
 #include "core/AdjudicationService.h"
 #include "core/AgentLoop.h"
 #include "core/AppContext.h"
+#include "core/SessionQueries.h"
 #include "llm/ProviderManager.h"
 #include "notify/EmailNotifier.h"
 #include <QAction>
@@ -187,9 +188,21 @@ void MainWindow::buildCentral() {
             [this](qint64 id, const QString& title) {
                 if (!m_db)
                     return;
-                m_db->execute(QStringLiteral("UPDATE sessions SET title=? WHERE id=?"), {title, id});
+                m_db->execute(sessionq::renameSql(), {title, id});
                 m_sidebar->loadSessions(m_db);
                 Toast::post(this, QStringLiteral("已重命名为「%1」").arg(title), Toast::Level::Success, 1800);
+            });
+    // 会话归档 / 取消归档：只改 archived_at，消息与 FTS 索引原样保留（可随时复原）
+    connect(m_sidebar, &SidebarView::sessionArchiveRequested, this,
+            [this](qint64 id, bool archive) {
+                if (!m_db)
+                    return;
+                m_db->execute(archive ? sessionq::archiveSql() : sessionq::unarchiveSql(), {id});
+                m_sidebar->loadSessions(m_db);
+                Toast::post(this,
+                            archive ? QStringLiteral("会话已归档（用左栏「📦 归档」查看）")
+                                    : QStringLiteral("已取消归档"),
+                            Toast::Level::Info, 2200);
             });
     connect(m_sidebar, &SidebarView::sessionDeleteRequested, this, [this](qint64 id) {
         if (!m_db)

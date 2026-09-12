@@ -142,7 +142,8 @@ bool Database::migrate() {
             id INTEGER PRIMARY KEY,
             title TEXT NOT NULL,
             created_at INTEGER NOT NULL,
-            updated_at INTEGER NOT NULL
+            updated_at INTEGER NOT NULL,
+            archived_at INTEGER           -- 归档时间戳；NULL=活动（归档不删数据，可取消）
         ))",
         R"(CREATE TABLE IF NOT EXISTS messages (
             id INTEGER PRIMARY KEY,
@@ -219,6 +220,29 @@ bool Database::migrate() {
             if (sqlite3_exec(m_db, "ALTER TABLE tasks ADD COLUMN context_json TEXT",
                              nullptr, nullptr, &err) != SQLITE_OK) {
                 m_lastError = QString::fromUtf8(err ? err : "tasks.context_json 迁移失败");
+                if (err)
+                    sqlite3_free(err);
+                return false;
+            }
+        }
+    }
+    // sessions.archived_at 是后补列（会话归档：列表默认隐藏归档项，数据与消息原样保留）
+    {
+        sqlite3_stmt* stmt = nullptr;
+        bool hasArchived = false;
+        if (sqlite3_prepare_v2(m_db, "PRAGMA table_info(sessions)", -1, &stmt, nullptr) == SQLITE_OK) {
+            while (sqlite3_step(stmt) == SQLITE_ROW) {
+                const unsigned char* col = sqlite3_column_text(stmt, 1);
+                if (col && QLatin1String(reinterpret_cast<const char*>(col)) == QLatin1String("archived_at"))
+                    hasArchived = true;
+            }
+            sqlite3_finalize(stmt);
+        }
+        if (!hasArchived) {
+            char* err = nullptr;
+            if (sqlite3_exec(m_db, "ALTER TABLE sessions ADD COLUMN archived_at INTEGER",
+                             nullptr, nullptr, &err) != SQLITE_OK) {
+                m_lastError = QString::fromUtf8(err ? err : "sessions.archived_at 迁移失败");
                 if (err)
                     sqlite3_free(err);
                 return false;

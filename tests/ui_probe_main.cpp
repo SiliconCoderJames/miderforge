@@ -29,6 +29,7 @@
 #include <QStackedWidget>
 #include <QStandardPaths>
 #include <QTemporaryDir>
+#include <QToolButton>
 #include <cstdio>
 #include <functional>
 
@@ -141,6 +142,13 @@ int main(int argc, char** argv) {
         return 2;
     }
     say(QStringLiteral("[2] 数据库就绪"));
+    // 预置会话：1 条活动 + 1 条已归档——用来端到端验证左栏列表的归档过滤接线
+    db.execute(QStringLiteral("INSERT INTO sessions(title,created_at,updated_at) "
+                              "VALUES('探针·活动会话',1,1000)"),
+               {});
+    db.execute(QStringLiteral("INSERT INTO sessions(title,created_at,updated_at,archived_at) "
+                              "VALUES('探针·已归档会话',1,2000,2000)"),
+               {});
     EventBus bus(tmp.path() + QStringLiteral("/events.jsonl"));
     bus.setDatabase(&db);
     MemoryManager mem(&db, tmp.path() + QStringLiteral("/core.md"));
@@ -183,6 +191,33 @@ int main(int argc, char** argv) {
 
     say(QStringLiteral("\n===== ① 初始（会话页）控件树 ====="));
     dumpTree(&win, 0, 3);
+
+    // 会话归档接线端到端：默认隐藏归档项，点「📦 归档」后应出现
+    {
+        // 必须定向到左栏自己的列表：findChild 会先命中技能页的 QListWidget
+        auto* sidebar = findByText<QWidget>(&win, [](QWidget* w) {
+            return QString::fromLatin1(w->metaObject()->className())
+                .contains(QStringLiteral("SidebarView"));
+        });
+        auto* list = sidebar ? sidebar->findChild<QListWidget*>() : nullptr;
+        auto* toggle = findByText<QToolButton>(&win, [](QToolButton* b) {
+            return b->text().contains(QStringLiteral("归档"));
+        });
+        say(QStringLiteral("\n===== ⑤ 会话归档接线 ====="));
+        say(QStringLiteral("  左栏列表项数（默认，应=1）: %1").arg(list ? list->count() : -1));
+        if (toggle) {
+            toggle->setChecked(true);
+            app.processEvents();
+            say(QStringLiteral("  点「%1」后项数（应=2）: %2")
+                    .arg(toggle->text())
+                    .arg(list ? list->count() : -1));
+            toggle->setChecked(false);
+            app.processEvents();
+            say(QStringLiteral("  取消开关后项数（应=1）: %1").arg(list ? list->count() : -1));
+        } else {
+            say(QStringLiteral("  [!] 未找到归档开关"));
+        }
+    }
 
     auto* settingsBtn = findByText<QPushButton>(&win, [](QPushButton* b) {
         return b->text().contains(QStringLiteral("设置"));

@@ -48,15 +48,21 @@ signals:
     // 会话右键菜单动作（标题用原文，删除需上层确认后执行）
     void sessionRenameRequested(qint64 id, const QString& newTitle);
     void sessionDeleteRequested(qint64 id);
+    // 会话归档 / 取消归档（消息与索引原样保留，仅从默认列表隐藏）
+    void sessionArchiveRequested(qint64 id, bool archive);
 
 private:
     void filterSessions(const QString& query); // 按标题子串切换行可见性（重载后保持过滤）
     void showSessionMenu(const QPoint& pos);   // 会话行右键菜单
     void beginRenameSession(QListWidgetItem* item);
+    void beginRenameById(qint64 id); // 按 id 重命名：旧标题从库读，不依赖列表项指针
 
     QPushButton* m_newBtn = nullptr;
     QLineEdit* m_search = nullptr;      // 会话搜索/过滤
     QListWidget* m_sessionList = nullptr;
+    Database* m_db = nullptr;        // 会话列表数据源（重命名取权威旧标题也用它）
+    bool m_showArchived = false;     // 「显示已归档」开关
+    QToolButton* m_archivedToggle = nullptr;
     bool m_menuOpen = false; // 右键菜单开着时禁止重建列表（避免删掉菜单处理器持有的行）
     qint64 m_currentId = -1; // 应当高亮的会话 id（重建列表后据此恢复高亮）
     QLabel* m_recentHeader = nullptr;

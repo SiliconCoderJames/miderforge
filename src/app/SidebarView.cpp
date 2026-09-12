@@ -2,6 +2,7 @@
 #include "app/SidebarView.h"
 #include "app/ChatWidgets.h"
 #include "app/Theme.h"
+#include "core/SessionQueries.h"
 #include "db/Database.h"
 #include <QAction>
 #include <QClipboard>
@@ -118,6 +119,33 @@ SidebarView::SidebarView(QWidget* parent) : QWidget(parent) {
     connect(m_search, &QLineEdit::textChanged, this, [this](const QString& q) { filterSessions(q); });
     lay->addWidget(m_search);
 
+    // 会话整理行：「显示已归档」开关。给可见入口而不是埋在右键菜单里——
+    // 会话被归档后"它去哪了"必须一眼能找到答案
+    auto* toolsRow = new QWidget(this);
+    auto* toolsLay = new QHBoxLayout(toolsRow);
+    toolsLay->setContentsMargins(2, 0, 2, 0);
+    toolsLay->setSpacing(4);
+    toolsLay->addStretch(1);
+    m_archivedToggle = new QToolButton(toolsRow);
+    m_archivedToggle->setText(QStringLiteral("📦 归档"));
+    m_archivedToggle->setCheckable(true);
+    m_archivedToggle->setCursor(Qt::PointingHandCursor);
+    m_archivedToggle->setToolTip(QStringLiteral("显示已归档会话（归档保留全部消息，可随时取消归档）"));
+    m_archivedToggle->setStyleSheet(QStringLiteral(
+        "QToolButton{background:transparent;border:none;border-radius:5px;padding:2px 8px;"
+        "color:%1;font-size:9.5pt;}"
+        "QToolButton:hover{background-color:%2;}"
+        "QToolButton:checked{background-color:%3;color:white;}")
+                                        .arg(theme::colors::textDim().name(),
+                                             theme::colors::window().name(),
+                                             theme::colors::accent().name()));
+    connect(m_archivedToggle, &QToolButton::toggled, this, [this](bool on) {
+        m_showArchived = on;
+        loadSessions(m_db);
+    });
+    toolsLay->addWidget(m_archivedToggle);
+    lay->addWidget(toolsRow);
+
     m_sessionEmpty = new QLabel(QStringLiteral("暂无会话"), this);
     m_sessionEmpty->setStyleSheet(QStringLiteral("color:%1;font-size:9.5pt;padding:2px 8px;")
                                       .arg(theme::colors::textDim().name()));
@@ -187,21 +215,27 @@ SidebarView::SidebarView(QWidget* parent) : QWidget(parent) {
 void SidebarView::loadSessions(Database* db) {
     if (!db)
         return;
+    m_db = db; // 重命名等操作要读权威标题
     // 右键菜单开着时不重建列表：clear() 会删掉菜单处理器持有的行，造成悬垂
     if (m_menuOpen)
         return;
     QSignalBlocker blocker(m_sessionList);
     m_sessionList->clear();
-    const auto rows = db->query(QStringLiteral(
-        "SELECT id, title, updated_at FROM sessions ORDER BY updated_at DESC LIMIT 100"), {});
+    // 查询走 core/SessionQueries.h 的契约 SQL（与验收测试同一条语句，杜绝假验证）
+    const auto rows = db->query(sessionq::listSql(m_showArchived), {});
     for (const auto& r : rows) {
         const QString title = r.value("title").toString();
         const QString time = QDateTime::fromSecsSinceEpoch(r.value("updated_at").toLongLong())
                                  .toString(QStringLiteral("MM-dd hh:mm"));
+        const bool archived = r.value("archived_at").toLongLong() > 0;
         auto* item = new QListWidgetItem(m_sessionList);
-        item->setText(QStringLiteral("%1\n%2").arg(title, time));
+        item->setText(archived ? QStringLiteral("%1\n%2 · 已归档").arg(title, time)
+                               : QStringLiteral("%1\n%2").arg(title, time));
         item->setToolTip(title);
         item->setData(Qt::UserRole, r.value("id").toLongLong());
+        item->setData(Qt::UserRole + 1, archived);
+        if (archived)
+            item->setForeground(theme::colors::textDim());
     }
     // 重载后保持当前过滤条件（否则搜索着搜索着结果会突然全回来）
     filterSessions(m_search ? m_search->text() : QString());
@@ -269,10 +303,14 @@ void SidebarView::showSessionMenu(const QPoint& pos) {
     // 先把需要的数据全部拷贝出来，之后不再触碰 item（除原地重命名那一项，见下）
     const qint64 id = item->data(Qt::UserRole).toLongLong();
     const QString fullTitle = item->toolTip();
+    const bool wasArchived = item->data(Qt::UserRole + 1).toBool();
 
     QMenu menu(this);
     QAction* rename = menu.addAction(QStringLiteral("重命名…"));
     QAction* copyTitle = menu.addAction(QStringLiteral("复制标题"));
+    QAction* arch = menu.addAction(wasArchived ? QStringLiteral("取消归档")
+                                               : QStringLiteral("归档会话"));
+    arch->setToolTip(QStringLiteral("归档：从列表隐藏，消息与检索索引全部保留，可随时取消归档"));
     menu.addSeparator();
     QAction* del = menu.addAction(QStringLiteral("删除会话"));
     del->setToolTip(QStringLiteral("删除该会话及其全部消息（不可撤销）"));
@@ -292,10 +330,9 @@ void SidebarView::showSessionMenu(const QPoint& pos) {
     }
 
     if (chosen == rename) {
-        if (live)
-            beginRenameSession(live);
-        else
-            Toast::post(window(), QStringLiteral("会话已不存在，无法重命名"), Toast::Level::Warn, 2000);
+        beginRenameById(id); // 按 id 走库读，不依赖可能已失效的列表项
+    } else if (chosen == arch) {
+        emit sessionArchiveRequested(id, !wasArchived);
     } else if (chosen == copyTitle) {
         QGuiApplication::clipboard()->setText(fullTitle);
         Toast::post(window(), QStringLiteral("已复制会话标题"), Toast::Level::Success, 1600);
@@ -304,12 +341,37 @@ void SidebarView::showSessionMenu(const QPoint& pos) {
     }
 }
 
-// 原地重命名：把行切成可编辑状态，提交后回到普通行并通知上层写库
 void SidebarView::beginRenameSession(QListWidgetItem* item) {
     if (!item)
         return;
-    const qint64 id = item->data(Qt::UserRole).toLongLong();
-    const QString oldTitle = item->toolTip();
+    beginRenameById(item->data(Qt::UserRole).toLongLong());
+}
+
+// 重命名（双击标题行或右键菜单都走这里）：旧标题从数据库读取。
+// 原实现直接读 item->toolTip()——但双击的第一击会切换会话 → sessionsChanged →
+// loadSessions() → clear()（qDeleteAll），第二击拿到的 item 可能已经失效，
+// 于是对话框显示乱码标题甚至什么都不发生。按 id 走库读才是稳的。
+void SidebarView::beginRenameById(qint64 id) {
+    if (id <= 0)
+        return;
+    QString oldTitle;
+    if (m_db) {
+        const auto rows = m_db->query(sessionq::titleSql(), {id});
+        if (!rows.empty())
+            oldTitle = rows.front().value(QStringLiteral("title")).toString();
+    }
+    if (oldTitle.isEmpty()) { // 库读兜底：从当前列表项找
+        for (int i = 0; i < m_sessionList->count(); ++i) {
+            if (m_sessionList->item(i)->data(Qt::UserRole).toLongLong() == id) {
+                oldTitle = m_sessionList->item(i)->toolTip();
+                break;
+            }
+        }
+    }
+    if (oldTitle.isEmpty()) {
+        Toast::post(window(), QStringLiteral("会话已不存在，无法重命名"), Toast::Level::Warn, 2000);
+        return;
+    }
     bool ok = false;
     const QString newTitle = QInputDialog::getText(this, QStringLiteral("重命名会话"),
                                                    QStringLiteral("会话标题："), QLineEdit::Normal,
