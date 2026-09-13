@@ -1,6 +1,7 @@
 // 左栏实现
 #include "app/SidebarView.h"
 #include "app/ChatWidgets.h"
+#include "app/SessionRowDelegate.h"
 #include "app/Theme.h"
 #include "core/SessionQueries.h"
 #include "db/Database.h"
@@ -12,6 +13,7 @@
 #include <QInputDialog>
 #include <QLineEdit>
 #include <QMenu>
+#include <QMouseEvent>
 #include <QSignalBlocker>
 #include <QVBoxLayout>
 
@@ -127,7 +129,9 @@ SidebarView::SidebarView(QWidget* parent) : QWidget(parent) {
     toolsLay->setSpacing(4);
     toolsLay->addStretch(1);
     m_archivedToggle = new QToolButton(toolsRow);
-    m_archivedToggle->setText(QStringLiteral("📦 归档"));
+    // 标签必须写清是"显示"而不是"执行归档"——原标签「📦 归档」被误读成归档按钮，
+    // 点了没反应（它只切换列表是否显示归档项）。真正的归档动作在每行右侧的行内图标上。
+    m_archivedToggle->setText(QStringLiteral("显示已归档"));
     m_archivedToggle->setCheckable(true);
     m_archivedToggle->setCursor(Qt::PointingHandCursor);
     m_archivedToggle->setToolTip(QStringLiteral("显示已归档会话（归档保留全部消息，可随时取消归档）"));
@@ -152,14 +156,16 @@ SidebarView::SidebarView(QWidget* parent) : QWidget(parent) {
     lay->addWidget(m_sessionEmpty);
 
     m_sessionList = new QListWidget(this);
+    // 行外观由 SessionRowDelegate 自绘（标题/时间/置顶标记/悬停出现的钉住与归档图标），
+    // 这里只给列表一个透明底——::item 的固定高度会与委托的 sizeHint 打架
     m_sessionList->setStyleSheet(QStringLiteral(
-        "QListWidget{background:transparent;border:none;font-size:9.5pt;outline:none;}"
-        "QListWidget::item{height:32px;border-radius:6px;padding-left:8px;color:%2;margin:1px 0;}"
-        "QListWidget::item:hover{background-color:%1;}"
-        "QListWidget::item:selected{background-color:%3;color:white;}")
-                                     .arg(theme::colors::window().name(), theme::colors::textDim().name(),
-                                          theme::colors::accent().name()));
-    m_sessionList->setToolTip(QStringLiteral("历史会话（点击恢复消息流）"));
+        "QListWidget{background:transparent;border:none;outline:none;}"
+        "QListWidget::item{background:transparent;}"));
+    m_sessionList->setItemDelegate(new SessionRowDelegate(m_sessionList));
+    m_sessionList->setMouseTracking(true);
+    m_sessionList->viewport()->setMouseTracking(true);
+    m_sessionList->viewport()->installEventFilter(this);
+    m_sessionList->setToolTip(QStringLiteral("历史会话（点击恢复消息流；行右侧图标可钉住/归档）"));
     connect(m_sessionList, &QListWidget::currentItemChanged, this,
             [this](QListWidgetItem* cur, QListWidgetItem*) {
                 if (cur)
@@ -229,14 +235,15 @@ void SidebarView::loadSessions(Database* db) {
         const QString time = sessionq::relativeTime(r.value("updated_at").toLongLong(),
                                                     QDateTime::currentSecsSinceEpoch());
         const bool archived = r.value("archived_at").toLongLong() > 0;
+        const bool pinned = r.value("pinned_at").toLongLong() > 0;
         auto* item = new QListWidgetItem(m_sessionList);
-        item->setText(archived ? QStringLiteral("%1\n%2 · 已归档").arg(title, time)
-                               : QStringLiteral("%1\n%2").arg(title, time));
+        item->setText(title); // 搜索过滤按标题匹配（行外观由委托自绘）
         item->setToolTip(title);
-        item->setData(Qt::UserRole, r.value("id").toLongLong());
-        item->setData(Qt::UserRole + 1, archived);
-        if (archived)
-            item->setForeground(theme::colors::textDim());
+        item->setData(SessionRowDelegate::IdRole, r.value("id").toLongLong());
+        item->setData(SessionRowDelegate::ArchivedRole, archived);
+        item->setData(SessionRowDelegate::PinnedRole, pinned);
+        item->setData(Qt::UserRole + 10, time); // 委托绘制的第二行时间文案
+        item->setSizeHint(QSize(0, SessionRowDelegate::kRowHeight));
     }
     // 重载后保持当前过滤条件（否则搜索着搜索着结果会突然全回来）
     filterSessions(m_search ? m_search->text() : QString());
@@ -309,6 +316,9 @@ void SidebarView::showSessionMenu(const QPoint& pos) {
     QMenu menu(this);
     QAction* rename = menu.addAction(QStringLiteral("重命名…"));
     QAction* copyTitle = menu.addAction(QStringLiteral("复制标题"));
+    const bool wasPinned = item->data(SessionRowDelegate::PinnedRole).toBool();
+    QAction* pin = menu.addAction(wasPinned ? QStringLiteral("取消置顶")
+                                            : QStringLiteral("置顶会话"));
     QAction* arch = menu.addAction(wasArchived ? QStringLiteral("取消归档")
                                                : QStringLiteral("归档会话"));
     arch->setToolTip(QStringLiteral("归档：从列表隐藏，消息与检索索引全部保留，可随时取消归档"));
@@ -332,6 +342,8 @@ void SidebarView::showSessionMenu(const QPoint& pos) {
 
     if (chosen == rename) {
         beginRenameById(id); // 按 id 走库读，不依赖可能已失效的列表项
+    } else if (chosen == pin) {
+        emit sessionPinRequested(id, !wasPinned);
     } else if (chosen == arch) {
         emit sessionArchiveRequested(id, !wasArchived);
     } else if (chosen == copyTitle) {
@@ -340,6 +352,61 @@ void SidebarView::showSessionMenu(const QPoint& pos) {
     } else if (chosen == del) {
         emit sessionDeleteRequested(id);
     }
+}
+
+// 会话列表视口事件：把"行内直操作"做实——鼠标移到行上出现钉住/归档图标，
+// 点图标即执行（并吞掉这次点击，避免同时触发选中→切换会话）。
+bool SidebarView::eventFilter(QObject* watched, QEvent* event) {
+    if (!m_sessionList || watched != m_sessionList->viewport())
+        return QWidget::eventFilter(watched, event);
+
+    auto* delegate = qobject_cast<SessionRowDelegate*>(m_sessionList->itemDelegate());
+    auto updateHover = [&](int row, int btn) {
+        if (row == m_hoverRow && btn == m_hoverButton)
+            return;
+        m_hoverRow = row;
+        m_hoverButton = btn;
+        if (delegate)
+            delegate->setHover(row, btn);
+        m_sessionList->viewport()->update();
+    };
+
+    switch (event->type()) {
+    case QEvent::MouseMove: {
+        auto* me = static_cast<QMouseEvent*>(event);
+        QListWidgetItem* item = m_sessionList->itemAt(me->pos());
+        if (!item) {
+            updateHover(-1, -1);
+            break;
+        }
+        updateHover(m_sessionList->row(item),
+                    SessionRowDelegate::buttonAt(m_sessionList->visualItemRect(item), me->pos()));
+        break;
+    }
+    case QEvent::Leave:
+        updateHover(-1, -1);
+        break;
+    case QEvent::MouseButtonRelease: {
+        auto* me = static_cast<QMouseEvent*>(event);
+        if (me->button() != Qt::LeftButton)
+            break;
+        QListWidgetItem* item = m_sessionList->itemAt(me->pos());
+        if (!item)
+            break;
+        const int btn = SessionRowDelegate::buttonAt(m_sessionList->visualItemRect(item), me->pos());
+        if (btn < 0)
+            break; // 点的是行体：交给列表做选中/切换
+        const qint64 id = item->data(SessionRowDelegate::IdRole).toLongLong();
+        if (btn == 0)
+            emit sessionPinRequested(id, !item->data(SessionRowDelegate::PinnedRole).toBool());
+        else
+            emit sessionArchiveRequested(id, !item->data(SessionRowDelegate::ArchivedRole).toBool());
+        return true; // 吞掉事件：行内按钮点击不触发会话切换
+    }
+    default:
+        break;
+    }
+    return QWidget::eventFilter(watched, event);
 }
 
 void SidebarView::beginRenameSession(QListWidgetItem* item) {

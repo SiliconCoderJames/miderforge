@@ -205,10 +205,19 @@ void MainWindow::buildCentral() {
                 m_db->execute(archive ? sessionq::archiveSql() : sessionq::unarchiveSql(), {id});
                 m_sidebar->loadSessions(m_db);
                 Toast::post(this,
-                            archive ? QStringLiteral("会话已归档（用左栏「📦 归档」查看）")
+                            archive ? QStringLiteral("会话已归档（点左栏「显示已归档」可查看）")
                                     : QStringLiteral("已取消归档"),
                             Toast::Level::Info, 2200);
             });
+    // 会话置顶 / 取消置顶：只改 pinned_at，列表按 pinned_at 排最前
+    connect(m_sidebar, &SidebarView::sessionPinRequested, this, [this](qint64 id, bool pin) {
+        if (!m_db)
+            return;
+        m_db->execute(pin ? sessionq::pinSql() : sessionq::unpinSql(), {id});
+        m_sidebar->loadSessions(m_db);
+        Toast::post(this, pin ? QStringLiteral("会话已置顶") : QStringLiteral("已取消置顶"),
+                    Toast::Level::Info, 1800);
+    });
     connect(m_sidebar, &SidebarView::sessionDeleteRequested, this, [this](qint64 id) {
         if (!m_db)
             return;

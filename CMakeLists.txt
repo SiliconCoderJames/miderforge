@@ -95,6 +95,7 @@ add_library(mider_ui STATIC
     src/app/SettingsDialog.h   src/app/SettingsDialog.cpp
     src/app/PreviewDoc.h       src/app/PreviewDoc.cpp
     src/app/PreviewPane.h      src/app/PreviewPane.cpp
+    src/app/SessionRowDelegate.h src/app/SessionRowDelegate.cpp
 )
 target_link_libraries(mider_ui PUBLIC mider_core Qt6::Widgets)
 
@@ -150,6 +151,7 @@ add_executable(mider_tests
     tests/test_commandpalette.cpp
     tests/test_scheduler.cpp
     tests/test_preview.cpp
+    tests/test_sessionrow.cpp
 )
 target_link_libraries(mider_tests PRIVATE mider_core Qt6::Network doctest::doctest)
 # 主题/聊天控件纯逻辑测试需要 mider_ui（app/Theme、app/ChatWidgets）；

@@ -39,10 +39,16 @@ TEST_CASE("schema：sessions 表带 archived_at（新建库即有；老库由 mi
     REQUIRE(db.open(tmp.path() + QStringLiteral("/s.db")));
     const auto cols = db.query(QStringLiteral("PRAGMA table_info(sessions)"), {});
     bool hasArchived = false;
-    for (const auto& c : cols)
-        if (c.value(QStringLiteral("name")).toString() == QStringLiteral("archived_at"))
+    bool hasPinned = false;
+    for (const auto& c : cols) {
+        const QString n = c.value(QStringLiteral("name")).toString();
+        if (n == QStringLiteral("archived_at"))
             hasArchived = true;
+        if (n == QStringLiteral("pinned_at"))
+            hasPinned = true;
+    }
     CHECK(hasArchived);
+    CHECK(hasPinned);
 }
 
 TEST_CASE("迁移：老库（缺 archived_at）重新 open 时自动补列且不丢数据") {
@@ -117,6 +123,35 @@ TEST_CASE("重命名：标题落库且 updated_at 不变（改名不该把会话
     const auto t = db.query(miderforge::sessionq::titleSql(), {id});
     REQUIRE(t.size() == 1);
     CHECK(t.front().value(QStringLiteral("title")).toString() == QStringLiteral("新标题"));
+}
+
+TEST_CASE("置顶：pinned_at 让会话排到列表最前（与更新时间无关），取消置顶后回落") {
+    QTemporaryDir tmp;
+    REQUIRE(tmp.isValid());
+    Database db;
+    REQUIRE(db.open(tmp.path() + QStringLiteral("/s.db")));
+    const qint64 older = insertSession(db, QStringLiteral("老会话"), 1000);
+    const qint64 newer = insertSession(db, QStringLiteral("新会话"), 9000);
+    REQUIRE(older > 0);
+    REQUIRE(newer > 0);
+
+    // 默认：新的在前
+    auto rows = db.query(miderforge::sessionq::listSql(false), {});
+    CHECK(titlesOf(rows).first() == QStringLiteral("新会话"));
+
+    // 置顶老会话 → 它必须排最前，且 updated_at 不被改动
+    db.execute(miderforge::sessionq::pinSql(), {older});
+    rows = db.query(miderforge::sessionq::listSql(false), {});
+    CHECK(titlesOf(rows) == QStringList({QStringLiteral("老会话"), QStringLiteral("新会话")}));
+    const auto pinnedRows = db.query(
+        QStringLiteral("SELECT updated_at, pinned_at FROM sessions WHERE id=?"), {older});
+    CHECK(pinnedRows.front().value(QStringLiteral("updated_at")).toLongLong() == 1000);
+    CHECK(pinnedRows.front().value(QStringLiteral("pinned_at")).toLongLong() > 0);
+
+    // 取消置顶 → 回到按时间排序
+    db.execute(miderforge::sessionq::unpinSql(), {older});
+    rows = db.query(miderforge::sessionq::listSql(false), {});
+    CHECK(titlesOf(rows).first() == QStringLiteral("新会话"));
 }
 
 TEST_CASE("归档：默认列表隐藏归档项，显示归档时排在活动项之后且带 archived_at") {

@@ -6,6 +6,7 @@
 // 输出统一走 say()（QString 拼接 + fputs），不用 printf：MSVC 在本目标把格式串告警当错误。
 #include "app/MainWindow.h"
 #include "app/PreviewPane.h"
+#include "app/SessionRowDelegate.h"
 #include "app/Theme.h"
 #include "core/AgentLoop.h"
 #include "core/AppContext.h"
@@ -26,6 +27,7 @@
 #include <QLabel>
 #include <QLayout>
 #include <QListWidget>
+#include <QMouseEvent>
 #include <QPushButton>
 #include <QScreen>
 #include <QStackedWidget>
@@ -270,7 +272,7 @@ int main(int argc, char** argv) {
     say(QStringLiteral("\n===== ① 初始（会话页）控件树 ====="));
     dumpTree(&win, 0, 3);
 
-    // 会话归档接线端到端：默认隐藏归档项，点「📦 归档」后应出现
+    // 会话行内动作：默认隐藏归档项；**程序化点击行内"归档"图标**应真的把会话归档
     {
         // 必须定向到左栏自己的列表：findChild 会先命中技能页的 QListWidget
         auto* sidebar = findByText<QWidget>(&win, [](QWidget* w) {
@@ -279,66 +281,52 @@ int main(int argc, char** argv) {
         });
         auto* list = sidebar ? sidebar->findChild<QListWidget*>() : nullptr;
         auto* toggle = findByText<QToolButton>(&win, [](QToolButton* b) {
-            return b->text().contains(QStringLiteral("归档"));
+            return b->text().contains(QStringLiteral("显示已归档"));
         });
-        say(QStringLiteral("\n===== ⑤ 会话归档接线 ====="));
+        say(QStringLiteral("\n===== ⑤ 会话行内动作（归档）====="));
         say(QStringLiteral("  左栏列表项数（默认，应=1）: %1").arg(list ? list->count() : -1));
+        if (list && list->count() > 0) {
+            say(QStringLiteral("  委托类型: %1")
+                    .arg(list->itemDelegate()
+                             ? QString::fromLatin1(list->itemDelegate()->metaObject()->className())
+                             : QStringLiteral("(无)")));
+            QListWidgetItem* item = list->item(0);
+            const QRect rowRect = list->visualItemRect(item);
+            const QRect archRect = miderforge::SessionRowDelegate::archiveRect(rowRect);
+            const QPoint pt = archRect.center();
+            say(QStringLiteral("  行几何 h=%1；归档按钮 %2,%3 %4x%5；命中测试=%6")
+                    .arg(rowRect.height())
+                    .arg(archRect.x())
+                    .arg(archRect.y())
+                    .arg(archRect.width())
+                    .arg(archRect.height())
+                    .arg(miderforge::SessionRowDelegate::buttonAt(rowRect, pt)));
+            // 模拟真实点击：视图端口收事件 → SidebarView::eventFilter → 发信号 → 写库
+            QMouseEvent press(QEvent::MouseButtonPress, pt, list->viewport()->mapToGlobal(pt),
+                              Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+            QMouseEvent release(QEvent::MouseButtonRelease, pt, list->viewport()->mapToGlobal(pt),
+                                Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+            QApplication::sendEvent(list->viewport(), &press);
+            QApplication::sendEvent(list->viewport(), &release);
+            app.processEvents();
+            say(QStringLiteral("  点击归档图标后，默认列表项数（应=0）: %1").arg(list->count()));
+        }
         if (toggle) {
             toggle->setChecked(true);
             app.processEvents();
-            say(QStringLiteral("  点「%1」后项数（应=2）: %2")
+            say(QStringLiteral("  勾选「%1」后项数（应=2，含刚归档的那条）: %2")
                     .arg(toggle->text())
                     .arg(list ? list->count() : -1));
             toggle->setChecked(false);
             app.processEvents();
-            say(QStringLiteral("  取消开关后项数（应=1）: %1").arg(list ? list->count() : -1));
+            say(QStringLiteral("  取消勾选后项数（应=0）: %1").arg(list ? list->count() : -1));
         } else {
             say(QStringLiteral("  [!] 未找到归档开关"));
         }
     }
 
-    auto* settingsBtn = findByText<QPushButton>(&win, [](QPushButton* b) {
-        return b->text().contains(QStringLiteral("设置"));
-    });
-    if (!settingsBtn) {
-        say(QStringLiteral("[!] 未找到设置按钮"));
-        return 3;
-    }
-    say(QStringLiteral("\n[操作] 点击 \"%1\"").arg(settingsBtn->text()));
-    settingsBtn->click();
-    app.processEvents();
-
-    say(QStringLiteral("\n===== ② 点击设置后控件树 ====="));
-    dumpTree(&win, 0, 2);
-
-    // 设置页内部：逐页最小宽度（找出是谁在要求超宽、把窗口撑出屏幕）
-    auto* settings = findByText<QWidget>(&win, [](QWidget* w) {
-        return QString::fromLatin1(w->metaObject()->className()).contains(QStringLiteral("Settings"));
-    });
-    if (settings) {
-        say(QStringLiteral("\n===== ③ 设置页内部分页最小宽度（谁在要宽度）====="));
-        for (auto* sw : settings->findChildren<QStackedWidget*>()) {
-            for (int i = 0; i < sw->count(); ++i) {
-                QWidget* page = sw->widget(i);
-                say(QStringLiteral("  页 %1: %2  minW=%3 minH=%4")
-                        .arg(i)
-                        .arg(QString::fromLatin1(cls(page)), -34)
-                        .arg(page->minimumSizeHint().width())
-                        .arg(page->minimumSizeHint().height()));
-            }
-        }
-        // 长文本 QLabel 是不换行时"最小宽度=整行文本宽"的常见元凶
-        say(QStringLiteral("\n===== ④ 未换行长标签（宽度元凶候选）====="));
-        for (auto* l : settings->findChildren<QLabel*>()) {
-            if (l->wordWrap() || l->text().isEmpty())
-                continue;
-            const int need = l->minimumSizeHint().width();
-            if (need >= 420)
-                say(QStringLiteral("  minW=%1  \"%2\"")
-                        .arg(need)
-                        .arg(l->text().left(58).replace(QLatin1Char('\n'), QLatin1Char('/'))));
-        }
-    }
+    say(QStringLiteral("\n===== ① 初始（会话页）控件树 ====="));
+    dumpTree(&win, 0, 3);
 
     QWidget* cw = win.centralWidget();
     say(QStringLiteral("\n[判定] 中央区 %1").arg(rect(cw->geometry())));

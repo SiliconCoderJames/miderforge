@@ -55,6 +55,12 @@ signals:
     void sessionDeleteRequested(qint64 id);
     // 会话归档 / 取消归档（消息与索引原样保留，仅从默认列表隐藏）
     void sessionArchiveRequested(qint64 id, bool archive);
+    // 会话置顶 / 取消置顶（置顶项排列表最前）
+    void sessionPinRequested(qint64 id, bool pin);
+
+protected:
+    // 会话列表视口事件：悬停高亮行内按钮 + 命中时执行钉住/归档
+    bool eventFilter(QObject* watched, QEvent* event) override;
 
 private:
     void filterSessions(const QString& query); // 按标题子串切换行可见性（重载后保持过滤）
@@ -68,6 +74,8 @@ private:
     QListWidget* m_sessionList = nullptr;
     Database* m_db = nullptr;        // 会话列表数据源（重命名取权威旧标题也用它）
     bool m_showArchived = false;     // 「显示已归档」开关
+    int m_hoverRow = -1;             // 行内按钮悬停状态（行号）
+    int m_hoverButton = -1;          // -1 无 / 0 钉住 / 1 归档
     QToolButton* m_archivedToggle = nullptr;
     bool m_menuOpen = false; // 右键菜单开着时禁止重建列表（避免删掉菜单处理器持有的行）
     qint64 m_currentId = -1; // 应当高亮的会话 id（重建列表后据此恢复高亮）

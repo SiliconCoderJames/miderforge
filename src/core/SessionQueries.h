@@ -7,13 +7,16 @@
 
 namespace miderforge::sessionq {
 
-// 会话列表：默认隐藏已归档；显示归档时归档项排在活动项之后，并带出 archived_at 供 UI 打标
+// 会话列表排序：**置顶在前** → 活动 → 已归档，同组内按更新时间倒序。
+// 默认隐藏归档项；显示归档时一并带出 archived_at / pinned_at 供 UI 打标与行内按钮定态。
 inline QString listSql(bool showArchived) {
-    return showArchived
-               ? QStringLiteral("SELECT id, title, updated_at, archived_at FROM sessions "
-                                "ORDER BY (archived_at IS NOT NULL), updated_at DESC LIMIT 200")
-               : QStringLiteral("SELECT id, title, updated_at FROM sessions "
-                                "WHERE archived_at IS NULL ORDER BY updated_at DESC LIMIT 100");
+    const QString base =
+        QStringLiteral("SELECT id, title, updated_at, archived_at, pinned_at FROM sessions ");
+    const QString order = QStringLiteral("ORDER BY (pinned_at IS NOT NULL) DESC, "
+                                         "(archived_at IS NOT NULL), updated_at DESC ");
+    return showArchived ? base + order + QStringLiteral("LIMIT 200")
+                        : base + QStringLiteral("WHERE archived_at IS NULL ") + order
+                              + QStringLiteral("LIMIT 100");
 }
 
 // 归档 = 打时间戳（不删数据，消息与 FTS 索引原样保留；取消归档即可复原）
@@ -22,6 +25,14 @@ inline QString archiveSql() {
 }
 inline QString unarchiveSql() {
     return QStringLiteral("UPDATE sessions SET archived_at=NULL WHERE id=?");
+}
+
+// 置顶 = 打时间戳（不改 updated_at：置顶不等于"最近使用过"，排序由 pinned_at 单独承载）
+inline QString pinSql() {
+    return QStringLiteral("UPDATE sessions SET pinned_at=strftime('%s','now') WHERE id=?");
+}
+inline QString unpinSql() {
+    return QStringLiteral("UPDATE sessions SET pinned_at=NULL WHERE id=?");
 }
 
 // 重命名：只改标题，不动 updated_at（否则改个名字就把会话顶到列表最前，排序被搅乱）
